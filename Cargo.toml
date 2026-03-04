@@ -1,0 +1,9 @@
+[package]
+name = "tc-tui"
+version = "0.1.0"
+edition = "2021"
+description = "Tangential Cold TUI"
+
+[dependencies]
+ratatui = "0.29"
+crossterm = "0.28"
