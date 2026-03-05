@@ -7,3 +7,6 @@ description = "Tangential Cold TUI"
 [dependencies]
 ratatui = "0.29"
 crossterm = "0.28"
+chrono = "0.4"
+chrono-tz = "0.9"
+hostname = "0.4"
