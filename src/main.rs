@@ -10,7 +10,7 @@ use ratatui::{
     widgets::{Block, Borders, Cell, Paragraph, Row, Table},
 };
 use std::io::{self, stdout, Stdout};
-use std::sync::{Arc, Mutex};
+use std::sync::{mpsc, Arc, Mutex};
 use std::thread;
 use std::time::Duration;
 
@@ -31,22 +31,34 @@ fn fetch_status(url: &str) -> String {
     }
 }
 
-fn spawn_status_checker(statuses: Arc<Mutex<Vec<(String, String)>>>) {
+fn refresh_statuses(statuses: &Arc<Mutex<Vec<(String, String)>>>) {
+    let results: Vec<(String, String)> = URLS
+        .iter()
+        .map(|url| {
+            let status = fetch_status(url);
+            (status, url.to_string())
+        })
+        .collect();
+
+    if let Ok(mut s) = statuses.lock() {
+        *s = results;
+    }
+}
+
+fn spawn_status_checker(
+    statuses: Arc<Mutex<Vec<(String, String)>>>,
+    refresh_rx: mpsc::Receiver<()>,
+) {
     thread::spawn(move || {
         loop {
-            let results: Vec<(String, String)> = URLS
-                .iter()
-                .map(|url| {
-                    let status = fetch_status(url);
-                    (status, url.to_string())
-                })
-                .collect();
+            refresh_statuses(&statuses);
 
-            if let Ok(mut s) = statuses.lock() {
-                *s = results;
+            // Wait for either 3 minutes or a manual refresh signal
+            match refresh_rx.recv_timeout(Duration::from_secs(180)) {
+                Ok(()) => continue,
+                Err(mpsc::RecvTimeoutError::Timeout) => continue,
+                Err(mpsc::RecvTimeoutError::Disconnected) => return,
             }
-
-            thread::sleep(Duration::from_secs(180));
         }
     });
 }
@@ -56,7 +68,8 @@ fn main() -> io::Result<()> {
         URLS.iter().map(|url| ("...".to_string(), url.to_string())).collect(),
     ));
 
-    spawn_status_checker(Arc::clone(&statuses));
+    let (refresh_tx, refresh_rx) = mpsc::channel();
+    spawn_status_checker(Arc::clone(&statuses), refresh_rx);
 
     enable_raw_mode()?;
     let mut stdout = stdout();
@@ -64,7 +77,7 @@ fn main() -> io::Result<()> {
     let backend = CrosstermBackend::new(stdout);
     let mut terminal = Terminal::new(backend)?;
 
-    let result = run_app(&mut terminal, &statuses);
+    let result = run_app(&mut terminal, &statuses, &refresh_tx);
 
     disable_raw_mode()?;
     execute!(terminal.backend_mut(), LeaveAlternateScreen)?;
@@ -73,7 +86,11 @@ fn main() -> io::Result<()> {
     result
 }
 
-fn run_app(terminal: &mut Terminal, statuses: &Arc<Mutex<Vec<(String, String)>>>) -> io::Result<()> {
+fn run_app(
+    terminal: &mut Terminal,
+    statuses: &Arc<Mutex<Vec<(String, String)>>>,
+    refresh_tx: &mpsc::Sender<()>,
+) -> io::Result<()> {
     loop {
         let status_data: Vec<(String, String)> = statuses
             .lock()
@@ -86,6 +103,9 @@ fn run_app(terminal: &mut Terminal, statuses: &Arc<Mutex<Vec<(String, String)>>>
                 if key.kind == KeyEventKind::Press {
                     match key.code {
                         KeyCode::Char('q') => return Ok(()),
+                        KeyCode::Char('r') => {
+                            let _ = refresh_tx.send(());
+                        }
                         _ => {}
                     }
                 }
@@ -102,6 +122,7 @@ fn ui(frame: &mut Frame, statuses: &[(String, String)]) {
         .constraints([
             Constraint::Length(2),
             Constraint::Min(0),
+            Constraint::Length(1),
         ])
         .split(area);
 
@@ -194,4 +215,15 @@ fn ui(frame: &mut Frame, statuses: &[(String, String)]) {
         .alignment(Alignment::Center);
 
     frame.render_widget(paragraph, body_chunks[1]);
+
+    // Bottom menu bar
+    let menu = Line::from(vec![
+        Span::styled(" q", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
+        Span::raw(" Quit  "),
+        Span::styled("r", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
+        Span::raw(" Refresh"),
+    ]);
+    let menu_bar = Paragraph::new(menu)
+        .style(Style::default().bg(Color::DarkGray).fg(Color::White));
+    frame.render_widget(menu_bar, chunks[2]);
 }
