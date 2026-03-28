@@ -16,8 +16,8 @@ use std::thread;
 use std::time::{Duration, Instant};
 use sysinfo::System;
 
-const CPU_HISTORY_LEN: usize = 12;
-const BAR_GRAPH_HEIGHT: u16 = 5;
+const CPU_HISTORY_LEN: usize = 24;
+const BAR_GRAPH_HEIGHT: u16 = 3;
 
 const URLS: &[&str] = &[
     "https://tangentialcold.com",
@@ -324,14 +324,7 @@ fn ui(frame: &mut Frame, statuses: &[(String, String)], sys: &SysSnapshot, cpu_h
     let buf = frame.buffer_mut();
 
     for (i, &load) in cpu_history.iter().enumerate() {
-        let filled_boxes = ((load / 20.0).ceil() as u16).min(BAR_GRAPH_HEIGHT);
-        let color = if load > 80.0 {
-            Color::Red
-        } else if load > 60.0 {
-            Color::Yellow
-        } else {
-            Color::Green
-        };
+        let filled_boxes = ((load / 33.34).ceil() as u16).min(BAR_GRAPH_HEIGHT);
 
         let x = graph_inner.x + (i * bar_width) as u16;
         if x >= graph_inner.x + graph_inner.width {
@@ -346,8 +339,13 @@ fn ui(frame: &mut Frame, statuses: &[(String, String)], sys: &SysSnapshot, cpu_h
                 continue;
             }
 
+            let row_color = match row {
+                0 => Color::Green,
+                1 => Color::Yellow,
+                _ => Color::Red,
+            };
             let span = if row < filled_boxes {
-                Span::styled("\u{2588}".repeat(draw_width), Style::default().fg(color))
+                Span::styled("\u{2588}".repeat(draw_width), Style::default().fg(row_color))
             } else {
                 Span::raw(" ".repeat(draw_width))
             };
