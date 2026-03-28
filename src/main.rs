@@ -87,9 +87,14 @@ fn main() -> io::Result<()> {
         WeatherInfo::pending("Granada"),
     ]));
 
-    let (refresh_tx, refresh_rx) = mpsc::channel();
-    spawn_status_checker(Arc::clone(&statuses), refresh_rx);
-    spawn_weather_fetcher(Arc::clone(&weather));
+    let (status_refresh_tx, status_refresh_rx) = mpsc::channel();
+    let (weather_refresh_tx, weather_refresh_rx) = mpsc::channel();
+
+    spawn_status_checker(Arc::clone(&statuses), status_refresh_rx);
+    spawn_weather_fetcher(Arc::clone(&weather), weather_refresh_rx);
+
+    // All refresh senders — add new ones here as panels are added
+    let refresh_senders: Vec<mpsc::Sender<()>> = vec![status_refresh_tx, weather_refresh_tx];
 
     enable_raw_mode()?;
     let mut stdout = stdout();
@@ -97,7 +102,7 @@ fn main() -> io::Result<()> {
     let backend = CrosstermBackend::new(stdout);
     let mut terminal = Terminal::new(backend)?;
 
-    let result = run_app(&mut terminal, &statuses, &weather, &refresh_tx);
+    let result = run_app(&mut terminal, &statuses, &weather, &refresh_senders);
 
     disable_raw_mode()?;
     execute!(terminal.backend_mut(), LeaveAlternateScreen)?;
@@ -139,7 +144,7 @@ fn run_app(
     terminal: &mut Terminal,
     statuses: &Arc<Mutex<Vec<(String, String)>>>,
     weather: &Arc<Mutex<Vec<WeatherInfo>>>,
-    refresh_tx: &mpsc::Sender<()>,
+    refresh_senders: &[mpsc::Sender<()>],
 ) -> io::Result<()> {
     let mut sys = System::new_all();
     sys.refresh_cpu_usage();
@@ -186,7 +191,9 @@ fn run_app(
                     match key.code {
                         KeyCode::Char('q') => return Ok(()),
                         KeyCode::Char('r') => {
-                            let _ = refresh_tx.send(());
+                            for tx in refresh_senders {
+                                let _ = tx.send(());
+                            }
                         }
                         _ => {}
                     }

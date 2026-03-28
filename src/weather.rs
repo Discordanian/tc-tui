@@ -1,5 +1,5 @@
 use serde::Deserialize;
-use std::sync::{Arc, Mutex};
+use std::sync::{mpsc, Arc, Mutex};
 use std::thread;
 use std::time::Duration;
 
@@ -108,7 +108,10 @@ fn fetch_weather(city: &str, lat: f64, lon: f64) -> Option<WeatherInfo> {
     })
 }
 
-pub fn spawn_weather_fetcher(weather: Arc<Mutex<Vec<WeatherInfo>>>) {
+pub fn spawn_weather_fetcher(
+    weather: Arc<Mutex<Vec<WeatherInfo>>>,
+    refresh_rx: mpsc::Receiver<()>,
+) {
     thread::spawn(move || {
         loop {
             let locations = [
@@ -131,7 +134,11 @@ pub fn spawn_weather_fetcher(weather: Arc<Mutex<Vec<WeatherInfo>>>) {
                 *w = results;
             }
 
-            thread::sleep(Duration::from_secs(1800));
+            match refresh_rx.recv_timeout(Duration::from_secs(1800)) {
+                Ok(()) => continue,
+                Err(mpsc::RecvTimeoutError::Timeout) => continue,
+                Err(mpsc::RecvTimeoutError::Disconnected) => return,
+            }
         }
     });
 }
