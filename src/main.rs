@@ -1,3 +1,5 @@
+mod weather;
+
 use chrono::{DateTime, Utc};
 use chrono_tz::{America::Chicago, Europe::Madrid};
 use crossterm::{
@@ -15,9 +17,16 @@ use std::sync::{mpsc, Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
 use sysinfo::System;
+use weather::{spawn_weather_fetcher, WeatherInfo};
 
 const CPU_HISTORY_LEN: usize = 24;
 const BAR_GRAPH_HEIGHT: u16 = 3;
+
+const ST_LOUIS_LAT: f64 = 38.6270;
+const ST_LOUIS_LON: f64 = -90.1994;
+
+const GRANADA_LAT: f64 = 37.1773;
+const GRANADA_LON: f64 = -3.5986;
 
 const URLS: &[&str] = &[
     "https://tangentialcold.com",
@@ -73,8 +82,14 @@ fn main() -> io::Result<()> {
         URLS.iter().map(|url| ("...".to_string(), url.to_string())).collect(),
     ));
 
+    let weather: Arc<Mutex<Vec<WeatherInfo>>> = Arc::new(Mutex::new(vec![
+        WeatherInfo::pending("St. Louis"),
+        WeatherInfo::pending("Granada"),
+    ]));
+
     let (refresh_tx, refresh_rx) = mpsc::channel();
     spawn_status_checker(Arc::clone(&statuses), refresh_rx);
+    spawn_weather_fetcher(Arc::clone(&weather));
 
     enable_raw_mode()?;
     let mut stdout = stdout();
@@ -82,7 +97,7 @@ fn main() -> io::Result<()> {
     let backend = CrosstermBackend::new(stdout);
     let mut terminal = Terminal::new(backend)?;
 
-    let result = run_app(&mut terminal, &statuses, &refresh_tx);
+    let result = run_app(&mut terminal, &statuses, &weather, &refresh_tx);
 
     disable_raw_mode()?;
     execute!(terminal.backend_mut(), LeaveAlternateScreen)?;
@@ -123,6 +138,7 @@ fn current_cpu_load(sys: &System) -> f32 {
 fn run_app(
     terminal: &mut Terminal,
     statuses: &Arc<Mutex<Vec<(String, String)>>>,
+    weather: &Arc<Mutex<Vec<WeatherInfo>>>,
     refresh_tx: &mpsc::Sender<()>,
 ) -> io::Result<()> {
     let mut sys = System::new_all();
@@ -158,7 +174,11 @@ fn run_app(
             .clone();
 
         let history: Vec<f32> = cpu_history.iter().copied().collect();
-        terminal.draw(|frame| ui(frame, &status_data, &sys_snapshot, &history))?;
+        let weather_data: Vec<WeatherInfo> = weather
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone();
+        terminal.draw(|frame| ui(frame, &status_data, &sys_snapshot, &history, &weather_data))?;
 
         if event::poll(Duration::from_millis(100))? {
             if let Event::Key(key) = event::read()? {
@@ -176,7 +196,7 @@ fn run_app(
     }
 }
 
-fn ui(frame: &mut Frame, statuses: &[(String, String)], sys: &SysSnapshot, cpu_history: &[f32]) {
+fn ui(frame: &mut Frame, statuses: &[(String, String)], sys: &SysSnapshot, cpu_history: &[f32], weather: &[WeatherInfo]) {
     let area = frame.area();
 
     let chunks = Layout::default()
@@ -353,6 +373,36 @@ fn ui(frame: &mut Frame, statuses: &[(String, String)], sys: &SysSnapshot, cpu_h
         }
     }
 
+    // Right panel: split into weather (top) and main content (bottom)
+    let right_chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Length(4),
+            Constraint::Min(0),
+        ])
+        .split(body_chunks[1]);
+
+    // Weather box
+    let weather_lines: Vec<Line> = weather.iter().map(|w| {
+        Line::from(vec![
+            Span::styled(
+                format!("{:<12}", w.city),
+                Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD),
+            ),
+            Span::raw(format!(
+                " {:>5.1}°F ({:>5.1}°C)  H:{:.1}°F ({:.1}°C)  L:{:.1}°F ({:.1}°C)  {} {}",
+                w.current_f, w.current_c,
+                w.high_f, w.high_c,
+                w.low_f, w.low_c,
+                w.emoji, w.description,
+            )),
+        ])
+    }).collect();
+
+    let weather_para = Paragraph::new(weather_lines)
+        .block(Block::default().title(" Weather ").borders(Borders::ALL));
+    frame.render_widget(weather_para, right_chunks[0]);
+
     // Main content
     let block = Block::default()
         .title(" Tangential Cold TUI ")
@@ -362,7 +412,7 @@ fn ui(frame: &mut Frame, statuses: &[(String, String)], sys: &SysSnapshot, cpu_h
         .block(block)
         .alignment(Alignment::Center);
 
-    frame.render_widget(paragraph, body_chunks[1]);
+    frame.render_widget(paragraph, right_chunks[1]);
 
     // Bottom menu bar
     let menu = Line::from(vec![
