@@ -1,5 +1,3 @@
-mod globe;
-
 use chrono::{DateTime, Utc};
 use chrono_tz::{America::Chicago, Europe::Madrid};
 use crossterm::{
@@ -9,20 +7,64 @@ use crossterm::{
 };
 use ratatui::{
     prelude::*,
-    widgets::{Block, Borders, Paragraph},
+    widgets::{Block, Borders, Cell, Paragraph, Row, Table},
 };
 use std::io::{self, stdout, Stdout};
+use std::sync::{Arc, Mutex};
+use std::thread;
+use std::time::Duration;
+
+const URLS: &[&str] = &[
+    "https://tangentialcold.com",
+    "https://babilonia.tangentialcold.com",
+    "https://annaschwind.com",
+    "https://slithytoves.org",
+];
 
 type Terminal = ratatui::Terminal<CrosstermBackend<Stdout>>;
 
+fn fetch_status(url: &str) -> String {
+    match ureq::get(url).call() {
+        Ok(resp) => resp.status().to_string(),
+        Err(ureq::Error::Status(code, _)) => code.to_string(),
+        Err(_) => "ERR".to_string(),
+    }
+}
+
+fn spawn_status_checker(statuses: Arc<Mutex<Vec<(String, String)>>>) {
+    thread::spawn(move || {
+        loop {
+            let results: Vec<(String, String)> = URLS
+                .iter()
+                .map(|url| {
+                    let status = fetch_status(url);
+                    (status, url.to_string())
+                })
+                .collect();
+
+            if let Ok(mut s) = statuses.lock() {
+                *s = results;
+            }
+
+            thread::sleep(Duration::from_secs(180));
+        }
+    });
+}
+
 fn main() -> io::Result<()> {
+    let statuses: Arc<Mutex<Vec<(String, String)>>> = Arc::new(Mutex::new(
+        URLS.iter().map(|url| ("...".to_string(), url.to_string())).collect(),
+    ));
+
+    spawn_status_checker(Arc::clone(&statuses));
+
     enable_raw_mode()?;
     let mut stdout = stdout();
     execute!(stdout, EnterAlternateScreen)?;
     let backend = CrosstermBackend::new(stdout);
     let mut terminal = Terminal::new(backend)?;
 
-    let result = run_app(&mut terminal);
+    let result = run_app(&mut terminal, &statuses);
 
     disable_raw_mode()?;
     execute!(terminal.backend_mut(), LeaveAlternateScreen)?;
@@ -31,16 +73,13 @@ fn main() -> io::Result<()> {
     result
 }
 
-fn run_app(terminal: &mut Terminal) -> io::Result<()> {
-    let mut rotation: f64 = 0.0;
-
+fn run_app(terminal: &mut Terminal, statuses: &Arc<Mutex<Vec<(String, String)>>>) -> io::Result<()> {
     loop {
-        terminal.draw(|frame| ui(frame, rotation))?;
-
-        rotation += 0.0005;
-        if rotation > std::f64::consts::TAU {
-            rotation -= std::f64::consts::TAU;
-        }
+        let status_data: Vec<(String, String)> = statuses
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone();
+        terminal.draw(|frame| ui(frame, &status_data))?;
 
         if event::poll(std::time::Duration::from_millis(100))? {
             if let Event::Key(key) = event::read()? {
@@ -55,7 +94,7 @@ fn run_app(terminal: &mut Terminal) -> io::Result<()> {
     }
 }
 
-fn ui(frame: &mut Frame, rotation: f64) {
+fn ui(frame: &mut Frame, statuses: &[(String, String)]) {
     let area = frame.area();
 
     let chunks = Layout::default()
@@ -69,7 +108,7 @@ fn ui(frame: &mut Frame, rotation: f64) {
     let body_chunks = Layout::default()
         .direction(Direction::Horizontal)
         .constraints([
-            Constraint::Ratio(1, 4),
+            Constraint::Ratio(1, 3),
             Constraint::Min(0),
         ])
         .split(chunks[1]);
@@ -111,20 +150,39 @@ fn ui(frame: &mut Frame, rotation: f64) {
 
     frame.render_widget(header_block, chunks[0]);
 
-    // Left panel: rotating ASCII globe
-    let globe_block = Block::default()
-        .title(" Globe ")
-        .borders(Borders::ALL);
-    let globe_inner = globe_block.inner(body_chunks[0]);
-    let globe_text = globe::render_globe(
-        globe_inner.width as usize,
-        globe_inner.height as usize,
-        rotation,
+    // Left panel: status table
+    let rows: Vec<Row> = statuses
+        .iter()
+        .map(|(code, url)| {
+            let style = match code.as_str() {
+                "200" => Style::default().fg(Color::Green),
+                c if c.starts_with('3') => Style::default().fg(Color::Yellow),
+                c if c.starts_with('4') | c.starts_with('5') => Style::default().fg(Color::Red),
+                "..." => Style::default().fg(Color::DarkGray),
+                _ => Style::default().fg(Color::Red),
+            };
+            Row::new(vec![
+                Cell::from(code.clone()).style(style),
+                Cell::from(url.clone()),
+            ])
+        })
+        .collect();
+
+    let table = Table::new(
+        rows,
+        [Constraint::Length(5), Constraint::Min(0)],
+    )
+    .header(
+        Row::new(vec!["Code", "URL"])
+            .style(Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD))
+    )
+    .block(
+        Block::default()
+            .title(" Status ")
+            .borders(Borders::ALL),
     );
-    let globe_para = Paragraph::new(globe_text)
-        .block(globe_block)
-        .style(Style::default().fg(Color::Cyan));
-    frame.render_widget(globe_para, body_chunks[0]);
+
+    frame.render_widget(table, body_chunks[0]);
 
     // Main content
     let block = Block::default()
