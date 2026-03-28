@@ -9,10 +9,15 @@ use ratatui::{
     prelude::*,
     widgets::{Block, Borders, Cell, Paragraph, Row, Table},
 };
+use std::collections::VecDeque;
 use std::io::{self, stdout, Stdout};
 use std::sync::{mpsc, Arc, Mutex};
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, Instant};
+use sysinfo::System;
+
+const CPU_HISTORY_LEN: usize = 12;
+const BAR_GRAPH_HEIGHT: u16 = 5;
 
 const URLS: &[&str] = &[
     "https://tangentialcold.com",
@@ -86,19 +91,76 @@ fn main() -> io::Result<()> {
     result
 }
 
+struct SysSnapshot {
+    cpu_count: usize,
+    total_ram: f64,
+    used_ram: f64,
+    cpu_load: f32,
+}
+
+fn take_sys_snapshot(sys: &System) -> SysSnapshot {
+    let cpu_load = if sys.cpus().is_empty() {
+        0.0
+    } else {
+        sys.cpus().iter().map(|c| c.cpu_usage()).sum::<f32>() / sys.cpus().len() as f32
+    };
+    SysSnapshot {
+        cpu_count: sys.cpus().len(),
+        total_ram: sys.total_memory() as f64 / 1_073_741_824.0,
+        used_ram: sys.used_memory() as f64 / 1_073_741_824.0,
+        cpu_load,
+    }
+}
+
+fn current_cpu_load(sys: &System) -> f32 {
+    if sys.cpus().is_empty() {
+        0.0
+    } else {
+        sys.cpus().iter().map(|c| c.cpu_usage()).sum::<f32>() / sys.cpus().len() as f32
+    }
+}
+
 fn run_app(
     terminal: &mut Terminal,
     statuses: &Arc<Mutex<Vec<(String, String)>>>,
     refresh_tx: &mpsc::Sender<()>,
 ) -> io::Result<()> {
+    let mut sys = System::new_all();
+    sys.refresh_cpu_usage();
+    sys.refresh_memory();
+
+    let mut sys_snapshot = take_sys_snapshot(&sys);
+    
+
+    let mut cpu_history: VecDeque<f32> = VecDeque::with_capacity(CPU_HISTORY_LEN);
+    let mut last_bar_sample = Instant::now();
+
     loop {
+        let now = Instant::now();
+
+        sys.refresh_cpu_usage();
+
+        // Sample CPU for bar graph every 5 seconds
+        if now.duration_since(last_bar_sample) >= Duration::from_secs(5) {
+            sys.refresh_memory();
+            let load = current_cpu_load(&sys);
+            if cpu_history.len() >= CPU_HISTORY_LEN {
+                cpu_history.pop_front();
+            }
+            cpu_history.push_back(load);
+            sys_snapshot = take_sys_snapshot(&sys);
+            last_bar_sample = now;
+        }
+
         let status_data: Vec<(String, String)> = statuses
             .lock()
             .unwrap_or_else(|e| e.into_inner())
             .clone();
-        terminal.draw(|frame| ui(frame, &status_data))?;
 
-        if event::poll(std::time::Duration::from_millis(100))? {
+        let history: Vec<f32> = cpu_history.iter().copied().collect();
+        terminal.draw(|frame| ui(frame, &status_data, &sys_snapshot, &history))?;
+
+        if event::poll(Duration::from_millis(100))? {
             if let Event::Key(key) = event::read()? {
                 if key.kind == KeyEventKind::Press {
                     match key.code {
@@ -114,7 +176,7 @@ fn run_app(
     }
 }
 
-fn ui(frame: &mut Frame, statuses: &[(String, String)]) {
+fn ui(frame: &mut Frame, statuses: &[(String, String)], sys: &SysSnapshot, cpu_history: &[f32]) {
     let area = frame.area();
 
     let chunks = Layout::default()
@@ -133,6 +195,16 @@ fn ui(frame: &mut Frame, statuses: &[(String, String)]) {
             Constraint::Min(0),
         ])
         .split(chunks[1]);
+
+    let left_chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Length(URLS.len() as u16 + 3),
+            Constraint::Length(6 + 2),
+            Constraint::Length(BAR_GRAPH_HEIGHT + 3),
+            Constraint::Min(0),
+        ])
+        .split(body_chunks[0]);
 
     // Header bar
     let now: DateTime<Utc> = Utc::now();
@@ -199,11 +271,89 @@ fn ui(frame: &mut Frame, statuses: &[(String, String)]) {
     )
     .block(
         Block::default()
-            .title(" Status ")
+            .title(" URL Status ")
             .borders(Borders::ALL),
     );
 
-    frame.render_widget(table, body_chunks[0]);
+    frame.render_widget(table, left_chunks[0]);
+
+    // Left panel: system info
+    let sys_rows = vec![
+        Row::new(vec![
+            Cell::from("CPU Count"),
+            Cell::from(format!("{}", sys.cpu_count)),
+        ]),
+        Row::new(vec![
+            Cell::from("RAM Total"),
+            Cell::from(format!("{:.1} GB", sys.total_ram)),
+        ]),
+        Row::new(vec![
+            Cell::from("RAM Usage"),
+            Cell::from(format!("{:.1} / {:.1} GB", sys.used_ram, sys.total_ram)),
+        ]),
+        Row::new(vec![
+            Cell::from("CPU Load"),
+            Cell::from(format!("{:.1}%", sys.cpu_load)),
+        ]),
+    ];
+
+    let sys_table = Table::new(
+        sys_rows,
+        [Constraint::Length(12), Constraint::Min(0)],
+    )
+    .block(
+        Block::default()
+            .title(" System ")
+            .borders(Borders::ALL),
+    )
+    .style(Style::default().fg(Color::Cyan));
+
+    frame.render_widget(sys_table, left_chunks[1]);
+
+    // Left panel: CPU bar graph
+    let graph_block = Block::default()
+        .title(" CPU History ")
+        .borders(Borders::ALL);
+    let graph_inner = graph_block.inner(left_chunks[2]);
+    frame.render_widget(graph_block, left_chunks[2]);
+
+    let w = graph_inner.width as usize;
+    let bar_width = (w / CPU_HISTORY_LEN).max(1);
+    let gap = if bar_width > 1 { 1 } else { 0 };
+    let fill = bar_width.saturating_sub(gap);
+    let buf = frame.buffer_mut();
+
+    for (i, &load) in cpu_history.iter().enumerate() {
+        let filled_boxes = ((load / 20.0).ceil() as u16).min(BAR_GRAPH_HEIGHT);
+        let color = if load > 80.0 {
+            Color::Red
+        } else if load > 60.0 {
+            Color::Yellow
+        } else {
+            Color::Green
+        };
+
+        let x = graph_inner.x + (i * bar_width) as u16;
+        if x >= graph_inner.x + graph_inner.width {
+            break;
+        }
+        let avail = ((graph_inner.x + graph_inner.width) - x) as usize;
+        let draw_width = fill.min(avail);
+
+        for row in 0..BAR_GRAPH_HEIGHT {
+            let y = graph_inner.y + (BAR_GRAPH_HEIGHT - 1 - row);
+            if y >= graph_inner.y + graph_inner.height {
+                continue;
+            }
+
+            let span = if row < filled_boxes {
+                Span::styled("\u{2588}".repeat(draw_width), Style::default().fg(color))
+            } else {
+                Span::raw(" ".repeat(draw_width))
+            };
+            buf.set_span(x, y, &span, draw_width as u16);
+        }
+    }
 
     // Main content
     let block = Block::default()
