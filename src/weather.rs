@@ -3,7 +3,11 @@ use std::sync::{mpsc, Arc, Mutex};
 use std::thread;
 use std::time::Duration;
 
-use crate::{GRANADA_LAT, GRANADA_LON, ST_LOUIS_LAT, ST_LOUIS_LON};
+const ST_LOUIS_LAT: f64 = 38.6270;
+const ST_LOUIS_LON: f64 = -90.1994;
+
+const GRANADA_LAT: f64 = 37.1773;
+const GRANADA_LON: f64 = -3.5986;
 
 #[derive(Clone)]
 pub struct WeatherInfo {
@@ -69,7 +73,7 @@ fn weather_code_to_emoji_desc(code: u32) -> (&'static str, &'static str) {
         66 | 67 => ("🌨️", "Freezing rain"),
         71 | 73 | 75 => ("❄️", "Snow"),
         77 => ("🌨️", "Snow grains"),
-        80 | 81 | 82 => ("🌦️", "Showers"),
+        80 ..= 82 => ("🌦️", "Showers"), // 80 | 81 | 82
         85 | 86 => ("🌨️", "Snow showers"),
         95 => ("⛈️", "Thunderstorm"),
         96 | 99 => ("⛈️", "Thunderstorm/hail"),

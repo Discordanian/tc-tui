@@ -22,12 +22,6 @@ use weather::{spawn_weather_fetcher, WeatherInfo};
 const CPU_HISTORY_LEN: usize = 24;
 const BAR_GRAPH_HEIGHT: u16 = 3;
 
-const ST_LOUIS_LAT: f64 = 38.6270;
-const ST_LOUIS_LON: f64 = -90.1994;
-
-const GRANADA_LAT: f64 = 37.1773;
-const GRANADA_LON: f64 = -3.5986;
-
 const URLS: &[&str] = &[
     "https://tangentialcold.com",
     "https://babilonia.tangentialcold.com",
@@ -277,7 +271,7 @@ fn ui(frame: &mut Frame, statuses: &[(String, String)], sys: &SysSnapshot, cpu_h
             let style = match code.as_str() {
                 "200" => Style::default().fg(Color::Green),
                 c if c.starts_with('3') => Style::default().fg(Color::Yellow),
-                c if c.starts_with('4') | c.starts_with('5') => Style::default().fg(Color::Red),
+                c if c.starts_with('4') || c.starts_with('5') => Style::default().fg(Color::Red),
                 "..." => Style::default().fg(Color::DarkGray),
                 _ => Style::default().fg(Color::Red),
             };
