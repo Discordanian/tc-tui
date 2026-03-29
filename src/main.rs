@@ -18,7 +18,7 @@ use std::sync::{mpsc, Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
 use sysinfo::System;
-use config::Config;
+use config::{Config, ConfigSource};
 use weather::{spawn_weather_fetcher, WeatherInfo};
 
 const BAR_GRAPH_HEIGHT: u16 = 3;
@@ -73,7 +73,7 @@ fn spawn_status_checker(
 }
 
 fn main() -> io::Result<()> {
-    let cfg = config::load();
+    let (cfg, cfg_source) = config::load();
 
     let statuses: Arc<Mutex<Vec<(String, String)>>> = Arc::new(Mutex::new(
         cfg.urls.sites.iter().map(|url| ("...".to_string(), url.clone())).collect(),
@@ -98,7 +98,7 @@ fn main() -> io::Result<()> {
     let backend = CrosstermBackend::new(stdout);
     let mut terminal = Terminal::new(backend)?;
 
-    let result = run_app(&mut terminal, &statuses, &weather, &refresh_senders, &cfg);
+    let result = run_app(&mut terminal, &statuses, &weather, &refresh_senders, &cfg, &cfg_source);
 
     disable_raw_mode()?;
     execute!(terminal.backend_mut(), LeaveAlternateScreen)?;
@@ -142,6 +142,7 @@ fn run_app(
     weather: &Arc<Mutex<Vec<WeatherInfo>>>,
     refresh_senders: &[mpsc::Sender<()>],
     cfg: &Config,
+    cfg_source: &ConfigSource,
 ) -> io::Result<()> {
     let mut sys = System::new_all();
     sys.refresh_cpu_usage();
@@ -180,7 +181,7 @@ fn run_app(
             .lock()
             .unwrap_or_else(|e| e.into_inner())
             .clone();
-        terminal.draw(|frame| ui(frame, &status_data, &sys_snapshot, &history, &weather_data, cpu_history_len))?;
+        terminal.draw(|frame| ui(frame, &status_data, &sys_snapshot, &history, &weather_data, cpu_history_len, cfg_source))?;
 
         if event::poll(Duration::from_millis(100))? {
             if let Event::Key(key) = event::read()? {
@@ -200,7 +201,7 @@ fn run_app(
     }
 }
 
-fn ui(frame: &mut Frame, statuses: &[(String, String)], sys: &SysSnapshot, cpu_history: &[f32], weather: &[WeatherInfo], cpu_history_len: usize) {
+fn ui(frame: &mut Frame, statuses: &[(String, String)], sys: &SysSnapshot, cpu_history: &[f32], weather: &[WeatherInfo], cpu_history_len: usize, cfg_source: &ConfigSource) {
     let area = frame.area();
 
     let chunks = Layout::default()
@@ -419,11 +420,16 @@ fn ui(frame: &mut Frame, statuses: &[(String, String)], sys: &SysSnapshot, cpu_h
     frame.render_widget(paragraph, right_chunks[1]);
 
     // Bottom menu bar
+    let cfg_style = match cfg_source {
+        ConfigSource::File(_) => Style::default().fg(Color::Green),
+        ConfigSource::Default(_) => Style::default().fg(Color::Yellow),
+    };
     let menu = Line::from(vec![
         Span::styled(" q", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
         Span::raw(" Quit  "),
         Span::styled("r", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
-        Span::raw(" Refresh"),
+        Span::raw(" Refresh  "),
+        Span::styled(cfg_source.label(), cfg_style),
     ]);
     let menu_bar = Paragraph::new(menu)
         .style(Style::default().bg(Color::DarkGray).fg(Color::White));

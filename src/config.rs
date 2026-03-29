@@ -70,25 +70,42 @@ impl Default for Config {
 }
 
 fn config_path() -> Option<PathBuf> {
-    dirs::config_dir().map(|p| p.join("tc-tui").join("config.toml"))
+    dirs::home_dir().map(|p| p.join(".config").join("tc-tui").join("config.toml"))
 }
 
-pub fn load() -> Config {
+pub enum ConfigSource {
+    File(PathBuf),
+    Default(String),
+}
+
+impl ConfigSource {
+    pub fn label(&self) -> String {
+        match self {
+            ConfigSource::File(p) => format!("cfg: {}", p.display()),
+            ConfigSource::Default(reason) => format!("cfg: default ({})", reason),
+        }
+    }
+}
+
+pub fn load() -> (Config, ConfigSource) {
     let path = match config_path() {
         Some(p) => p,
-        None => return Config::default(),
+        None => return (Config::default(), ConfigSource::Default("no config dir".to_string())),
     };
 
     let contents = match fs::read_to_string(&path) {
         Ok(s) => s,
-        Err(_) => return Config::default(),
+        Err(e) => return (
+            Config::default(),
+            ConfigSource::Default(format!("{}: {}", path.display(), e.kind())),
+        ),
     };
 
     match toml::from_str(&contents) {
-        Ok(cfg) => cfg,
+        Ok(cfg) => (cfg, ConfigSource::File(path)),
         Err(e) => {
-            eprintln!("Warning: failed to parse config at {}: {}", path.display(), e);
-            Config::default()
+            let reason = format!("parse error in {}: {}", path.display(), e);
+            (Config::default(), ConfigSource::Default(reason))
         }
     }
 }
