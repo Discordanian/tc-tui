@@ -1,13 +1,8 @@
+use crate::config::LocationConfig;
 use serde::Deserialize;
 use std::sync::{mpsc, Arc, Mutex};
 use std::thread;
 use std::time::Duration;
-
-const ST_LOUIS_LAT: f64 = 38.6270;
-const ST_LOUIS_LON: f64 = -90.1994;
-
-const GRANADA_LAT: f64 = 37.1773;
-const GRANADA_LON: f64 = -3.5986;
 
 #[derive(Clone)]
 pub struct WeatherInfo {
@@ -115,18 +110,16 @@ fn fetch_weather(city: &str, lat: f64, lon: f64) -> Option<WeatherInfo> {
 pub fn spawn_weather_fetcher(
     weather: Arc<Mutex<Vec<WeatherInfo>>>,
     refresh_rx: mpsc::Receiver<()>,
+    locations: Vec<LocationConfig>,
+    interval_secs: u64,
 ) {
     thread::spawn(move || {
         loop {
-            let locations = [
-                ("St. Louis", ST_LOUIS_LAT, ST_LOUIS_LON),
-                ("Granada", GRANADA_LAT, GRANADA_LON),
-            ];
             let results: Vec<WeatherInfo> = locations
                 .iter()
-                .map(|(city, lat, lon)| {
-                    fetch_weather(city, *lat, *lon).unwrap_or_else(|| {
-                        let mut w = WeatherInfo::pending(city);
+                .map(|loc| {
+                    fetch_weather(&loc.label, loc.lat, loc.lon).unwrap_or_else(|| {
+                        let mut w = WeatherInfo::pending(&loc.label);
                         w.description = "Error".to_string();
                         w.emoji = "❌".to_string();
                         w
@@ -138,7 +131,7 @@ pub fn spawn_weather_fetcher(
                 *w = results;
             }
 
-            match refresh_rx.recv_timeout(Duration::from_secs(1800)) {
+            match refresh_rx.recv_timeout(Duration::from_secs(interval_secs)) {
                 Ok(()) => continue,
                 Err(mpsc::RecvTimeoutError::Timeout) => continue,
                 Err(mpsc::RecvTimeoutError::Disconnected) => return,

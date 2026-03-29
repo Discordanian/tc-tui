@@ -1,0 +1,28 @@
+# tc-tui configuration
+# Copy this file to ~/.config/tc-tui/config.toml
+
+[[locations]]
+label = "St. Louis"
+lat   = 38.6270
+lon   = -90.1994
+
+[[locations]]
+label = "Granada"
+lat   = 37.1773
+lon   = -3.5986
+
+[urls]
+sites = [
+    "https://tangentialcold.com",
+    "https://babilonia.tangentialcold.com",
+    "https://annaschwind.com",
+    "https://slithytoves.org",
+]
+
+[refresh]
+weather_secs    = 1800   # 30 minutes
+url_check_secs  = 180    # 3 minutes
+cpu_sample_secs = 5      # 5 seconds
+
+[display]
+cpu_history_len = 24     # bars shown in CPU graph (each = cpu_sample_secs)

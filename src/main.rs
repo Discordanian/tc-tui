@@ -1,3 +1,4 @@
+mod config;
 mod weather;
 
 use chrono::{DateTime, Utc};
@@ -17,17 +18,10 @@ use std::sync::{mpsc, Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
 use sysinfo::System;
+use config::Config;
 use weather::{spawn_weather_fetcher, WeatherInfo};
 
-const CPU_HISTORY_LEN: usize = 24;
 const BAR_GRAPH_HEIGHT: u16 = 3;
-
-const URLS: &[&str] = &[
-    "https://tangentialcold.com",
-    "https://babilonia.tangentialcold.com",
-    "https://annaschwind.com",
-    "https://slithytoves.org",
-];
 
 type Terminal = ratatui::Terminal<CrosstermBackend<Stdout>>;
 
@@ -40,11 +34,18 @@ fn fetch_status(url: &str) -> String {
 }
 
 fn refresh_statuses(statuses: &Arc<Mutex<Vec<(String, String)>>>) {
-    let results: Vec<(String, String)> = URLS
+    let urls: Vec<String> = statuses
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .iter()
+        .map(|(_, url)| url.clone())
+        .collect();
+
+    let results: Vec<(String, String)> = urls
         .iter()
         .map(|url| {
             let status = fetch_status(url);
-            (status, url.to_string())
+            (status, url.clone())
         })
         .collect();
 
@@ -56,13 +57,13 @@ fn refresh_statuses(statuses: &Arc<Mutex<Vec<(String, String)>>>) {
 fn spawn_status_checker(
     statuses: Arc<Mutex<Vec<(String, String)>>>,
     refresh_rx: mpsc::Receiver<()>,
+    interval_secs: u64,
 ) {
     thread::spawn(move || {
         loop {
             refresh_statuses(&statuses);
 
-            // Wait for either 3 minutes or a manual refresh signal
-            match refresh_rx.recv_timeout(Duration::from_secs(180)) {
+            match refresh_rx.recv_timeout(Duration::from_secs(interval_secs)) {
                 Ok(()) => continue,
                 Err(mpsc::RecvTimeoutError::Timeout) => continue,
                 Err(mpsc::RecvTimeoutError::Disconnected) => return,
@@ -72,20 +73,21 @@ fn spawn_status_checker(
 }
 
 fn main() -> io::Result<()> {
+    let cfg = config::load();
+
     let statuses: Arc<Mutex<Vec<(String, String)>>> = Arc::new(Mutex::new(
-        URLS.iter().map(|url| ("...".to_string(), url.to_string())).collect(),
+        cfg.urls.sites.iter().map(|url| ("...".to_string(), url.clone())).collect(),
     ));
 
-    let weather: Arc<Mutex<Vec<WeatherInfo>>> = Arc::new(Mutex::new(vec![
-        WeatherInfo::pending("St. Louis"),
-        WeatherInfo::pending("Granada"),
-    ]));
+    let weather: Arc<Mutex<Vec<WeatherInfo>>> = Arc::new(Mutex::new(
+        cfg.locations.iter().map(|l| WeatherInfo::pending(&l.label)).collect(),
+    ));
 
     let (status_refresh_tx, status_refresh_rx) = mpsc::channel();
     let (weather_refresh_tx, weather_refresh_rx) = mpsc::channel();
 
-    spawn_status_checker(Arc::clone(&statuses), status_refresh_rx);
-    spawn_weather_fetcher(Arc::clone(&weather), weather_refresh_rx);
+    spawn_status_checker(Arc::clone(&statuses), status_refresh_rx, cfg.refresh.url_check_secs);
+    spawn_weather_fetcher(Arc::clone(&weather), weather_refresh_rx, cfg.locations.clone(), cfg.refresh.weather_secs);
 
     // All refresh senders — add new ones here as panels are added
     let refresh_senders: Vec<mpsc::Sender<()>> = vec![status_refresh_tx, weather_refresh_tx];
@@ -96,7 +98,7 @@ fn main() -> io::Result<()> {
     let backend = CrosstermBackend::new(stdout);
     let mut terminal = Terminal::new(backend)?;
 
-    let result = run_app(&mut terminal, &statuses, &weather, &refresh_senders);
+    let result = run_app(&mut terminal, &statuses, &weather, &refresh_senders, &cfg);
 
     disable_raw_mode()?;
     execute!(terminal.backend_mut(), LeaveAlternateScreen)?;
@@ -139,15 +141,17 @@ fn run_app(
     statuses: &Arc<Mutex<Vec<(String, String)>>>,
     weather: &Arc<Mutex<Vec<WeatherInfo>>>,
     refresh_senders: &[mpsc::Sender<()>],
+    cfg: &Config,
 ) -> io::Result<()> {
     let mut sys = System::new_all();
     sys.refresh_cpu_usage();
     sys.refresh_memory();
 
     let mut sys_snapshot = take_sys_snapshot(&sys);
-    
+    let cpu_history_len = cfg.display.cpu_history_len;
+    let cpu_sample_secs = cfg.refresh.cpu_sample_secs;
 
-    let mut cpu_history: VecDeque<f32> = VecDeque::with_capacity(CPU_HISTORY_LEN);
+    let mut cpu_history: VecDeque<f32> = VecDeque::with_capacity(cpu_history_len);
     let mut last_bar_sample = Instant::now();
 
     loop {
@@ -155,11 +159,10 @@ fn run_app(
 
         sys.refresh_cpu_usage();
 
-        // Sample CPU for bar graph every 5 seconds
-        if now.duration_since(last_bar_sample) >= Duration::from_secs(5) {
+        if now.duration_since(last_bar_sample) >= Duration::from_secs(cpu_sample_secs) {
             sys.refresh_memory();
             let load = current_cpu_load(&sys);
-            if cpu_history.len() >= CPU_HISTORY_LEN {
+            if cpu_history.len() >= cpu_history_len {
                 cpu_history.pop_front();
             }
             cpu_history.push_back(load);
@@ -177,7 +180,7 @@ fn run_app(
             .lock()
             .unwrap_or_else(|e| e.into_inner())
             .clone();
-        terminal.draw(|frame| ui(frame, &status_data, &sys_snapshot, &history, &weather_data))?;
+        terminal.draw(|frame| ui(frame, &status_data, &sys_snapshot, &history, &weather_data, cpu_history_len))?;
 
         if event::poll(Duration::from_millis(100))? {
             if let Event::Key(key) = event::read()? {
@@ -197,7 +200,7 @@ fn run_app(
     }
 }
 
-fn ui(frame: &mut Frame, statuses: &[(String, String)], sys: &SysSnapshot, cpu_history: &[f32], weather: &[WeatherInfo]) {
+fn ui(frame: &mut Frame, statuses: &[(String, String)], sys: &SysSnapshot, cpu_history: &[f32], weather: &[WeatherInfo], cpu_history_len: usize) {
     let area = frame.area();
 
     let chunks = Layout::default()
@@ -220,7 +223,7 @@ fn ui(frame: &mut Frame, statuses: &[(String, String)], sys: &SysSnapshot, cpu_h
     let left_chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Length(URLS.len() as u16 + 3),
+            Constraint::Length(statuses.len() as u16 + 3),
             Constraint::Length(6 + 2),
             Constraint::Length(BAR_GRAPH_HEIGHT + 3),
             Constraint::Min(0),
@@ -339,7 +342,7 @@ fn ui(frame: &mut Frame, statuses: &[(String, String)], sys: &SysSnapshot, cpu_h
     frame.render_widget(graph_block, left_chunks[2]);
 
     let w = graph_inner.width as usize;
-    let bar_width = (w / CPU_HISTORY_LEN).max(1);
+    let bar_width = (w / cpu_history_len).max(1);
     let gap = if bar_width > 1 { 1 } else { 0 };
     let fill = bar_width.saturating_sub(gap);
     let buf = frame.buffer_mut();
