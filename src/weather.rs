@@ -107,6 +107,111 @@ fn fetch_weather(city: &str, lat: f64, lon: f64) -> Option<WeatherInfo> {
     })
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // --- c_to_f ---
+
+    #[test]
+    fn c_to_f_freezing() {
+        assert!((c_to_f(0.0) - 32.0).abs() < 0.001);
+    }
+
+    #[test]
+    fn c_to_f_boiling() {
+        assert!((c_to_f(100.0) - 212.0).abs() < 0.001);
+    }
+
+    #[test]
+    fn c_to_f_body_temp() {
+        assert!((c_to_f(37.0) - 98.6).abs() < 0.1);
+    }
+
+    #[test]
+    fn c_to_f_negative() {
+        assert!((c_to_f(-40.0) - (-40.0)).abs() < 0.001);
+    }
+
+    // --- weather_code_to_emoji_desc ---
+
+    #[test]
+    fn code_clear_sky() {
+        let (emoji, desc) = weather_code_to_emoji_desc(0);
+        assert_eq!(desc, "Clear");
+        assert!(!emoji.is_empty());
+    }
+
+    #[test]
+    fn code_overcast() {
+        let (_, desc) = weather_code_to_emoji_desc(3);
+        assert_eq!(desc, "Overcast");
+    }
+
+    #[test]
+    fn code_rain() {
+        let (_, desc) = weather_code_to_emoji_desc(61);
+        assert_eq!(desc, "Rain");
+        let (_, desc) = weather_code_to_emoji_desc(63);
+        assert_eq!(desc, "Rain");
+        let (_, desc) = weather_code_to_emoji_desc(65);
+        assert_eq!(desc, "Rain");
+    }
+
+    #[test]
+    fn code_snow() {
+        let (_, desc) = weather_code_to_emoji_desc(71);
+        assert_eq!(desc, "Snow");
+        let (_, desc) = weather_code_to_emoji_desc(75);
+        assert_eq!(desc, "Snow");
+    }
+
+    #[test]
+    fn code_thunderstorm() {
+        let (_, desc) = weather_code_to_emoji_desc(95);
+        assert_eq!(desc, "Thunderstorm");
+    }
+
+    #[test]
+    fn code_showers_range() {
+        for code in 80..=82 {
+            let (_, desc) = weather_code_to_emoji_desc(code);
+            assert_eq!(desc, "Showers", "code {code} should be Showers");
+        }
+    }
+
+    #[test]
+    fn code_unknown_falls_back() {
+        let (_, desc) = weather_code_to_emoji_desc(200);
+        assert_eq!(desc, "Unknown");
+    }
+
+    // --- WeatherInfo::pending ---
+
+    #[test]
+    fn pending_sets_city() {
+        let w = WeatherInfo::pending("St. Louis");
+        assert_eq!(w.city, "St. Louis");
+    }
+
+    #[test]
+    fn pending_description_is_placeholder() {
+        let w = WeatherInfo::pending("anywhere");
+        assert_eq!(w.description, "...");
+    }
+
+    #[test]
+    fn pending_temps_are_zero() {
+        let w = WeatherInfo::pending("anywhere");
+        assert_eq!(w.current_c, 0.0);
+        assert_eq!(w.current_f, 0.0);
+        assert_eq!(w.high_c, 0.0);
+        assert_eq!(w.high_f, 0.0);
+        assert_eq!(w.low_c, 0.0);
+        assert_eq!(w.low_f, 0.0);
+    }
+}
+
 pub fn spawn_weather_fetcher(
     weather: Arc<Mutex<Vec<WeatherInfo>>>,
     refresh_rx: mpsc::Receiver<()>,
