@@ -1,4 +1,5 @@
 mod config;
+mod system;
 mod weather;
 
 use chrono::{DateTime, Utc};
@@ -19,6 +20,7 @@ use std::thread;
 use std::time::{Duration, Instant};
 use sysinfo::System;
 use config::{Config, ConfigSource};
+use system::{current_cpu_load, render_system_table, take_snapshot, SysSnapshot, SYSTEM_TABLE_HEIGHT};
 use weather::{spawn_weather_fetcher, WeatherInfo};
 
 const BAR_GRAPH_HEIGHT: u16 = 3;
@@ -107,35 +109,6 @@ fn main() -> io::Result<()> {
     result
 }
 
-struct SysSnapshot {
-    cpu_count: usize,
-    total_ram: f64,
-    used_ram: f64,
-    cpu_load: f32,
-}
-
-fn take_sys_snapshot(sys: &System) -> SysSnapshot {
-    let cpu_load = if sys.cpus().is_empty() {
-        0.0
-    } else {
-        sys.cpus().iter().map(|c| c.cpu_usage()).sum::<f32>() / sys.cpus().len() as f32
-    };
-    SysSnapshot {
-        cpu_count: sys.cpus().len(),
-        total_ram: sys.total_memory() as f64 / 1_073_741_824.0,
-        used_ram: sys.used_memory() as f64 / 1_073_741_824.0,
-        cpu_load,
-    }
-}
-
-fn current_cpu_load(sys: &System) -> f32 {
-    if sys.cpus().is_empty() {
-        0.0
-    } else {
-        sys.cpus().iter().map(|c| c.cpu_usage()).sum::<f32>() / sys.cpus().len() as f32
-    }
-}
-
 fn run_app(
     terminal: &mut Terminal,
     statuses: &Arc<Mutex<Vec<(String, String)>>>,
@@ -148,7 +121,7 @@ fn run_app(
     sys.refresh_cpu_usage();
     sys.refresh_memory();
 
-    let mut sys_snapshot = take_sys_snapshot(&sys);
+    let mut sys_snapshot = take_snapshot(&sys);
     let cpu_history_len = cfg.display.cpu_history_len;
     let cpu_sample_secs = cfg.refresh.cpu_sample_secs;
 
@@ -167,7 +140,7 @@ fn run_app(
                 cpu_history.pop_front();
             }
             cpu_history.push_back(load);
-            sys_snapshot = take_sys_snapshot(&sys);
+            sys_snapshot = take_snapshot(&sys);
             last_bar_sample = now;
         }
 
@@ -225,7 +198,7 @@ fn ui(frame: &mut Frame, statuses: &[(String, String)], sys: &SysSnapshot, cpu_h
         .direction(Direction::Vertical)
         .constraints([
             Constraint::Length(statuses.len() as u16 + 3),
-            Constraint::Length(4 + 2),
+            Constraint::Length(SYSTEM_TABLE_HEIGHT),
             Constraint::Length(BAR_GRAPH_HEIGHT + 3),
             Constraint::Min(0),
         ])
@@ -302,51 +275,7 @@ fn ui(frame: &mut Frame, statuses: &[(String, String)], sys: &SysSnapshot, cpu_h
 
     frame.render_widget(table, left_chunks[0]);
 
-    // Left panel: system info
-    let sys_rows = vec![
-        Row::new(vec![
-            Cell::from("CPU Count"),
-            Cell::from(format!("{}", sys.cpu_count)),
-        ]),
-        Row::new(vec![
-            Cell::from("RAM Total"),
-            Cell::from(format!("{:.1} GB", sys.total_ram)),
-        ]),
-        Row::new(vec![
-            Cell::from("RAM Usage"),
-            {
-                let pct = if sys.total_ram > 0.0 { sys.used_ram / sys.total_ram } else { 0.0 };
-                let color = if pct >= 0.80 {
-                    Color::Red
-                } else if pct >= 0.50 {
-                    Color::Yellow
-                } else {
-                    Color::Green
-                };
-                Cell::from(Line::from(vec![
-                    Span::styled(format!("{:.1}", sys.used_ram), Style::default().fg(color)),
-                    Span::raw(format!(" / {:.1} GB", sys.total_ram)),
-                ]))
-            },
-        ]),
-        Row::new(vec![
-            Cell::from("CPU Load"),
-            Cell::from(format!("{:.1}%", sys.cpu_load)),
-        ]),
-    ];
-
-    let sys_table = Table::new(
-        sys_rows,
-        [Constraint::Length(12), Constraint::Min(0)],
-    )
-    .block(
-        Block::default()
-            .title(" System ")
-            .borders(Borders::ALL),
-    )
-    .style(Style::default().fg(Color::Cyan));
-
-    frame.render_widget(sys_table, left_chunks[1]);
+    render_system_table(frame, left_chunks[1], sys);
 
     // Left panel: CPU bar graph
     let graph_block = Block::default()
