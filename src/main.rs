@@ -314,7 +314,20 @@ fn ui(frame: &mut Frame, statuses: &[(String, String)], sys: &SysSnapshot, cpu_h
         ]),
         Row::new(vec![
             Cell::from("RAM Usage"),
-            Cell::from(format!("{:.1} / {:.1} GB", sys.used_ram, sys.total_ram)),
+            {
+                let pct = if sys.total_ram > 0.0 { sys.used_ram / sys.total_ram } else { 0.0 };
+                let color = if pct >= 0.80 {
+                    Color::Red
+                } else if pct >= 0.50 {
+                    Color::Yellow
+                } else {
+                    Color::Green
+                };
+                Cell::from(Line::from(vec![
+                    Span::styled(format!("{:.1}", sys.used_ram), Style::default().fg(color)),
+                    Span::raw(format!(" / {:.1} GB", sys.total_ram)),
+                ]))
+            },
         ]),
         Row::new(vec![
             Cell::from("CPU Load"),
