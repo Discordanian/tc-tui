@@ -35,6 +35,14 @@ fn fetch_status(url: &str) -> String {
     }
 }
 
+fn reset_statuses(statuses: &Arc<Mutex<Vec<(String, String)>>>) {
+    if let Ok(mut s) = statuses.lock() {
+        for (code, _) in s.iter_mut() {
+            *code = "...".to_string();
+        }
+    }
+}
+
 fn refresh_statuses(statuses: &Arc<Mutex<Vec<(String, String)>>>) {
     let urls: Vec<String> = statuses
         .lock()
@@ -162,9 +170,11 @@ fn run_app(
                     match key.code {
                         KeyCode::Char('q') => return Ok(()),
                         KeyCode::Char('r') => {
+                            reset_statuses(statuses);
                             for tx in refresh_senders {
                                 let _ = tx.send(());
                             }
+                            last_bar_sample -= Duration::from_secs(cpu_sample_secs);
                         }
                         _ => {}
                     }
@@ -376,4 +386,60 @@ fn ui(frame: &mut Frame, statuses: &[(String, String)], sys: &SysSnapshot, cpu_h
     let menu_bar = Paragraph::new(menu)
         .style(Style::default().bg(Color::DarkGray).fg(Color::White));
     frame.render_widget(menu_bar, chunks[2]);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn make_statuses(entries: &[(&str, &str)]) -> Arc<Mutex<Vec<(String, String)>>> {
+        Arc::new(Mutex::new(
+            entries.iter().map(|(c, u)| (c.to_string(), u.to_string())).collect(),
+        ))
+    }
+
+    #[test]
+    fn reset_statuses_sets_all_codes_to_pending() {
+        let statuses = make_statuses(&[
+            ("200", "https://example.com"),
+            ("404", "https://missing.example.com"),
+            ("ERR", "https://broken.example.com"),
+        ]);
+
+        reset_statuses(&statuses);
+
+        let locked = statuses.lock().unwrap();
+        for (code, _) in locked.iter() {
+            assert_eq!(code, "...", "Expected '...' but got '{code}'");
+        }
+    }
+
+    #[test]
+    fn reset_statuses_preserves_urls() {
+        let urls = vec!["https://example.com", "https://other.example.com"];
+        let statuses = make_statuses(&[("200", urls[0]), ("500", urls[1])]);
+
+        reset_statuses(&statuses);
+
+        let locked = statuses.lock().unwrap();
+        let stored_urls: Vec<&str> = locked.iter().map(|(_, u)| u.as_str()).collect();
+        assert_eq!(stored_urls, urls);
+    }
+
+    #[test]
+    fn reset_statuses_on_empty_list_is_noop() {
+        let statuses = make_statuses(&[]);
+        reset_statuses(&statuses);
+        let locked = statuses.lock().unwrap();
+        assert!(locked.is_empty());
+    }
+
+    #[test]
+    fn reset_statuses_idempotent() {
+        let statuses = make_statuses(&[("200", "https://example.com")]);
+        reset_statuses(&statuses);
+        reset_statuses(&statuses);
+        let locked = statuses.lock().unwrap();
+        assert_eq!(locked[0].0, "...");
+    }
 }
