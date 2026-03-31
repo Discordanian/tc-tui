@@ -225,7 +225,7 @@ fn ui(frame: &mut Frame, statuses: &[(String, String)], sys: &SysSnapshot, cpu_h
         .direction(Direction::Vertical)
         .constraints([
             Constraint::Length(statuses.len() as u16 + 3),
-            Constraint::Length(6 + 2),
+            Constraint::Length(4 + 2),
             Constraint::Length(BAR_GRAPH_HEIGHT + 3),
             Constraint::Min(0),
         ])
