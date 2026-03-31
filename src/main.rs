@@ -27,6 +27,17 @@ const BAR_GRAPH_HEIGHT: u16 = 3;
 
 type Terminal = ratatui::Terminal<CrosstermBackend<Stdout>>;
 
+fn vpn_active() -> bool {
+    if_addrs::get_if_addrs()
+        .unwrap_or_default()
+        .iter()
+        .any(|iface| {
+            let n = iface.name.as_str();
+            n.starts_with("tun") || n.starts_with("tap") || n.starts_with("utun")
+                || n.starts_with("wg") || n.starts_with("ppp")
+        })
+}
+
 fn fetch_status(url: &str) -> String {
     match ureq::get(url).call() {
         Ok(resp) => resp.status().to_string(),
@@ -221,6 +232,9 @@ fn ui(frame: &mut Frame, statuses: &[(String, String)], sys: &SysSnapshot, cpu_h
     let date = now.with_timezone(&Madrid).format("%Y-%m-%d").to_string();
 
     let hostname = hostname::get().unwrap_or_else(|_| std::ffi::OsString::from("unknown"));
+    let lock = if vpn_active() { "🔒" } else { "🔓" };
+    // emoji counts as 2 display columns + 1 space separator
+    let center_width = hostname.len() as u16 + 3;
 
     let header_block = Block::default().borders(Borders::BOTTOM);
     let header_inner = header_block.inner(chunks[0]);
@@ -229,7 +243,7 @@ fn ui(frame: &mut Frame, statuses: &[(String, String)], sys: &SysSnapshot, cpu_h
         .direction(Direction::Horizontal)
         .constraints([
             Constraint::Min(0),
-            Constraint::Length(hostname.len() as u16 + 2),
+            Constraint::Length(center_width),
             Constraint::Min(0),
         ])
         .split(header_inner);
@@ -239,7 +253,8 @@ fn ui(frame: &mut Frame, statuses: &[(String, String)], sys: &SysSnapshot, cpu_h
         .style(Style::default().fg(Color::Cyan));
     frame.render_widget(times, header_chunks[0]);
 
-    let hostname_para = Paragraph::new(hostname.to_string_lossy().to_string())
+    let center_text = format!("{} {}", lock, hostname.to_string_lossy());
+    let hostname_para = Paragraph::new(center_text)
         .style(Style::default().fg(Color::Cyan))
         .alignment(Alignment::Center);
     frame.render_widget(hostname_para, header_chunks[1]);
