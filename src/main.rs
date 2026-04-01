@@ -27,6 +27,45 @@ const BAR_GRAPH_HEIGHT: u16 = 3;
 
 type Terminal = ratatui::Terminal<CrosstermBackend<Stdout>>;
 
+fn fetch_ip_city() -> String {
+    #[derive(serde::Deserialize)]
+    struct IpInfo {
+        city: Option<String>,
+        region: Option<String>,
+    }
+    match ureq::get("https://ipinfo.io/json").call() {
+        Ok(resp) => match resp.into_json::<IpInfo>() {
+            Ok(info) => match (info.city, info.region) {
+                (Some(c), Some(r)) => format!("{}, {}", c, r),
+                (Some(c), None) => c,
+                _ => "Unknown".to_string(),
+            },
+            Err(_) => "Unknown".to_string(),
+        },
+        Err(_) => "Unknown".to_string(),
+    }
+}
+
+fn spawn_ip_city_fetcher(
+    city: Arc<Mutex<String>>,
+    refresh_rx: mpsc::Receiver<()>,
+    interval_secs: u64,
+) {
+    thread::spawn(move || {
+        loop {
+            let result = fetch_ip_city();
+            if let Ok(mut c) = city.lock() {
+                *c = result;
+            }
+            match refresh_rx.recv_timeout(Duration::from_secs(interval_secs)) {
+                Ok(()) => continue,
+                Err(mpsc::RecvTimeoutError::Timeout) => continue,
+                Err(mpsc::RecvTimeoutError::Disconnected) => return,
+            }
+        }
+    });
+}
+
 fn vpn_active() -> bool {
     if_addrs::get_if_addrs()
         .unwrap_or_default()
@@ -104,14 +143,18 @@ fn main() -> io::Result<()> {
         cfg.locations.iter().map(|l| WeatherInfo::pending(&l.label)).collect(),
     ));
 
+    let ip_city: Arc<Mutex<String>> = Arc::new(Mutex::new("...".to_string()));
+
     let (status_refresh_tx, status_refresh_rx) = mpsc::channel();
     let (weather_refresh_tx, weather_refresh_rx) = mpsc::channel();
+    let (ip_city_refresh_tx, ip_city_refresh_rx) = mpsc::channel();
 
     spawn_status_checker(Arc::clone(&statuses), status_refresh_rx, cfg.refresh.url_check_secs);
     spawn_weather_fetcher(Arc::clone(&weather), weather_refresh_rx, cfg.locations.clone(), cfg.refresh.weather_secs);
+    spawn_ip_city_fetcher(Arc::clone(&ip_city), ip_city_refresh_rx, 300);
 
     // All refresh senders — add new ones here as panels are added
-    let refresh_senders: Vec<mpsc::Sender<()>> = vec![status_refresh_tx, weather_refresh_tx];
+    let refresh_senders: Vec<mpsc::Sender<()>> = vec![status_refresh_tx, weather_refresh_tx, ip_city_refresh_tx];
 
     enable_raw_mode()?;
     let mut stdout = stdout();
@@ -119,7 +162,7 @@ fn main() -> io::Result<()> {
     let backend = CrosstermBackend::new(stdout);
     let mut terminal = Terminal::new(backend)?;
 
-    let result = run_app(&mut terminal, &statuses, &weather, &refresh_senders, &cfg, &cfg_source);
+    let result = run_app(&mut terminal, &statuses, &weather, &ip_city, &refresh_senders, &cfg, &cfg_source);
 
     disable_raw_mode()?;
     execute!(terminal.backend_mut(), LeaveAlternateScreen)?;
@@ -132,6 +175,7 @@ fn run_app(
     terminal: &mut Terminal,
     statuses: &Arc<Mutex<Vec<(String, String)>>>,
     weather: &Arc<Mutex<Vec<WeatherInfo>>>,
+    ip_city: &Arc<Mutex<String>>,
     refresh_senders: &[mpsc::Sender<()>],
     cfg: &Config,
     cfg_source: &ConfigSource,
@@ -147,10 +191,19 @@ fn run_app(
     let mut cpu_history: VecDeque<f32> = VecDeque::with_capacity(cpu_history_len);
     let mut last_bar_sample = Instant::now();
 
+    let vpn_refresh_secs = 300;
+    let mut is_vpn_active = vpn_active();
+    let mut last_vpn_check = Instant::now();
+
     loop {
         let now = Instant::now();
 
         sys.refresh_cpu_usage();
+
+        if now.duration_since(last_vpn_check) >= Duration::from_secs(vpn_refresh_secs) {
+            is_vpn_active = vpn_active();
+            last_vpn_check = now;
+        }
 
         if now.duration_since(last_bar_sample) >= Duration::from_secs(cpu_sample_secs) {
             sys.refresh_memory();
@@ -173,7 +226,8 @@ fn run_app(
             .lock()
             .unwrap_or_else(|e| e.into_inner())
             .clone();
-        terminal.draw(|frame| ui(frame, &status_data, &sys_snapshot, &history, &weather_data, cpu_history_len, cfg_source))?;
+        let city = ip_city.lock().unwrap_or_else(|e| e.into_inner()).clone();
+        terminal.draw(|frame| ui(frame, &status_data, &sys_snapshot, &history, &weather_data, &city, is_vpn_active, cpu_history_len, cfg_source))?;
 
         if event::poll(Duration::from_millis(100))? {
             if let Event::Key(key) = event::read()? {
@@ -186,6 +240,8 @@ fn run_app(
                                 let _ = tx.send(());
                             }
                             last_bar_sample -= Duration::from_secs(cpu_sample_secs);
+                            is_vpn_active = vpn_active();
+                            last_vpn_check = now;
                         }
                         _ => {}
                     }
@@ -195,7 +251,7 @@ fn run_app(
     }
 }
 
-fn ui(frame: &mut Frame, statuses: &[(String, String)], sys: &SysSnapshot, cpu_history: &[f32], weather: &[WeatherInfo], cpu_history_len: usize, cfg_source: &ConfigSource) {
+fn ui(frame: &mut Frame, statuses: &[(String, String)], sys: &SysSnapshot, cpu_history: &[f32], weather: &[WeatherInfo], ip_city: &str, vpn: bool, cpu_history_len: usize, cfg_source: &ConfigSource) {
     let area = frame.area();
 
     let chunks = Layout::default()
@@ -232,9 +288,10 @@ fn ui(frame: &mut Frame, statuses: &[(String, String)], sys: &SysSnapshot, cpu_h
     let date = now.with_timezone(&Madrid).format("%Y-%m-%d").to_string();
 
     let hostname = hostname::get().unwrap_or_else(|_| std::ffi::OsString::from("unknown"));
-    let lock = if vpn_active() { "🔒" } else { "🔓" };
-    // emoji counts as 2 display columns + 1 space separator
-    let center_width = hostname.len() as u16 + 3;
+    let lock = if vpn { "🔒" } else { "🔓" };
+    // "(city) 🔒 hostname" — emoji is 2 cols, city parens + space + space = city.len()+4
+    let center_text = format!("({}) {} {}", ip_city, lock, hostname.to_string_lossy());
+    let center_width = (ip_city.len() + 2 + 1 + 2 + 1 + hostname.len()) as u16 + 2;
 
     let header_block = Block::default().borders(Borders::BOTTOM);
     let header_inner = header_block.inner(chunks[0]);
@@ -253,7 +310,6 @@ fn ui(frame: &mut Frame, statuses: &[(String, String)], sys: &SysSnapshot, cpu_h
         .style(Style::default().fg(Color::Cyan));
     frame.render_widget(times, header_chunks[0]);
 
-    let center_text = format!("{} {}", lock, hostname.to_string_lossy());
     let hostname_para = Paragraph::new(center_text)
         .style(Style::default().fg(Color::Cyan))
         .alignment(Alignment::Center);
