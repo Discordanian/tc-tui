@@ -116,6 +116,6 @@ mod tests {
         let mut sys = System::new_all();
         sys.refresh_cpu_usage();
         let load = current_cpu_load(&sys);
-        assert!(load >= 0.0 && load <= 100.0);
+        assert!((0.0..=100.0).contains(&load));
     }
 }

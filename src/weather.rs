@@ -107,6 +107,39 @@ fn fetch_weather(city: &str, lat: f64, lon: f64) -> Option<WeatherInfo> {
     })
 }
 
+pub fn spawn_weather_fetcher(
+    weather: Arc<Mutex<Vec<WeatherInfo>>>,
+    refresh_rx: mpsc::Receiver<()>,
+    locations: Vec<LocationConfig>,
+    interval_secs: u64,
+) {
+    thread::spawn(move || {
+        loop {
+            let results: Vec<WeatherInfo> = locations
+                .iter()
+                .map(|loc| {
+                    fetch_weather(&loc.label, loc.lat, loc.lon).unwrap_or_else(|| {
+                        let mut w = WeatherInfo::pending(&loc.label);
+                        w.description = "Error".to_string();
+                        w.emoji = "❌".to_string();
+                        w
+                    })
+                })
+                .collect();
+
+            if let Ok(mut w) = weather.lock() {
+                *w = results;
+            }
+
+            match refresh_rx.recv_timeout(Duration::from_secs(interval_secs)) {
+                Ok(()) => continue,
+                Err(mpsc::RecvTimeoutError::Timeout) => continue,
+                Err(mpsc::RecvTimeoutError::Disconnected) => return,
+            }
+        }
+    });
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -210,37 +243,4 @@ mod tests {
         assert_eq!(w.low_c, 0.0);
         assert_eq!(w.low_f, 0.0);
     }
-}
-
-pub fn spawn_weather_fetcher(
-    weather: Arc<Mutex<Vec<WeatherInfo>>>,
-    refresh_rx: mpsc::Receiver<()>,
-    locations: Vec<LocationConfig>,
-    interval_secs: u64,
-) {
-    thread::spawn(move || {
-        loop {
-            let results: Vec<WeatherInfo> = locations
-                .iter()
-                .map(|loc| {
-                    fetch_weather(&loc.label, loc.lat, loc.lon).unwrap_or_else(|| {
-                        let mut w = WeatherInfo::pending(&loc.label);
-                        w.description = "Error".to_string();
-                        w.emoji = "❌".to_string();
-                        w
-                    })
-                })
-                .collect();
-
-            if let Ok(mut w) = weather.lock() {
-                *w = results;
-            }
-
-            match refresh_rx.recv_timeout(Duration::from_secs(interval_secs)) {
-                Ok(()) => continue,
-                Err(mpsc::RecvTimeoutError::Timeout) => continue,
-                Err(mpsc::RecvTimeoutError::Disconnected) => return,
-            }
-        }
-    });
 }

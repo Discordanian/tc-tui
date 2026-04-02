@@ -3,7 +3,7 @@ mod currency;
 mod system;
 mod weather;
 
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, Datelike, Utc, Weekday};
 use chrono_tz::{America::Chicago, Europe::Madrid};
 use crossterm::{
     event::{self, Event, KeyCode, KeyEventKind},
@@ -29,6 +29,30 @@ const BAR_GRAPH_HEIGHT: u16 = 3;
 const CURRENCY_BOX_HEIGHT: u16 = 4;
 
 type Terminal = ratatui::Terminal<CrosstermBackend<Stdout>>;
+
+struct RunAppModel<'a> {
+    statuses: &'a Arc<Mutex<Vec<(String, String)>>>,
+    weather: &'a Arc<Mutex<Vec<WeatherInfo>>>,
+    ip_city: &'a Arc<Mutex<String>>,
+    currency_rates: &'a Arc<Mutex<(CurrencyRate, CurrencyRate)>>,
+    refresh_senders: &'a [mpsc::Sender<()>],
+    cfg: &'a Config,
+    cfg_source: &'a ConfigSource,
+}
+
+struct UiModel<'a> {
+    statuses: &'a [(String, String)],
+    sys: &'a SysSnapshot,
+    cpu_history: &'a [f32],
+    weather: &'a [WeatherInfo],
+    ip_city: &'a str,
+    vpn: bool,
+    cpu_history_len: usize,
+    cfg_source: &'a ConfigSource,
+    currency_inputs: &'a [String; 2],
+    active_currency_input: usize,
+    currency_rates: &'a (CurrencyRate, CurrencyRate),
+}
 
 fn fetch_ip_city() -> String {
     #[derive(serde::Deserialize)]
@@ -187,13 +211,15 @@ fn main() -> io::Result<()> {
 
     let result = run_app(
         &mut terminal,
-        &statuses,
-        &weather,
-        &ip_city,
-        &currency_rates,
-        &refresh_senders,
-        &cfg,
-        &cfg_source,
+        RunAppModel {
+            statuses: &statuses,
+            weather: &weather,
+            ip_city: &ip_city,
+            currency_rates: &currency_rates,
+            refresh_senders: &refresh_senders,
+            cfg: &cfg,
+            cfg_source: &cfg_source,
+        },
     );
 
     disable_raw_mode()?;
@@ -203,16 +229,16 @@ fn main() -> io::Result<()> {
     result
 }
 
-fn run_app(
-    terminal: &mut Terminal,
-    statuses: &Arc<Mutex<Vec<(String, String)>>>,
-    weather: &Arc<Mutex<Vec<WeatherInfo>>>,
-    ip_city: &Arc<Mutex<String>>,
-    currency_rates: &Arc<Mutex<(CurrencyRate, CurrencyRate)>>,
-    refresh_senders: &[mpsc::Sender<()>],
-    cfg: &Config,
-    cfg_source: &ConfigSource,
-) -> io::Result<()> {
+fn run_app(terminal: &mut Terminal, model: RunAppModel<'_>) -> io::Result<()> {
+    let RunAppModel {
+        statuses,
+        weather,
+        ip_city,
+        currency_rates,
+        refresh_senders,
+        cfg,
+        cfg_source,
+    } = model;
     let mut sys = System::new_all();
     sys.refresh_cpu_usage();
     sys.refresh_memory();
@@ -269,17 +295,19 @@ fn run_app(
         terminal.draw(|frame| {
             ui(
                 frame,
-                &status_data,
-                &sys_snapshot,
-                &history,
-                &weather_data,
-                &city,
-                is_vpn_active,
-                cpu_history_len,
-                cfg_source,
-                &currency_inputs,
-                active_currency_input,
-                &rate_data,
+                UiModel {
+                    statuses: &status_data,
+                    sys: &sys_snapshot,
+                    cpu_history: &history,
+                    weather: &weather_data,
+                    ip_city: &city,
+                    vpn: is_vpn_active,
+                    cpu_history_len,
+                    cfg_source,
+                    currency_inputs: &currency_inputs,
+                    active_currency_input,
+                    currency_rates: &rate_data,
+                },
             )
         })?;
 
@@ -314,20 +342,20 @@ fn run_app(
     }
 }
 
-fn ui(
-    frame: &mut Frame,
-    statuses: &[(String, String)],
-    sys: &SysSnapshot,
-    cpu_history: &[f32],
-    weather: &[WeatherInfo],
-    ip_city: &str,
-    vpn: bool,
-    cpu_history_len: usize,
-    cfg_source: &ConfigSource,
-    currency_inputs: &[String; 2],
-    active_currency_input: usize,
-    currency_rates: &(CurrencyRate, CurrencyRate),
-) {
+fn ui(frame: &mut Frame, m: UiModel<'_>) {
+    let UiModel {
+        statuses,
+        sys,
+        cpu_history,
+        weather,
+        ip_city,
+        vpn,
+        cpu_history_len,
+        cfg_source,
+        currency_inputs,
+        active_currency_input,
+        currency_rates,
+    } = m;
     let area = frame.area();
 
     let chunks = Layout::default()
@@ -362,7 +390,7 @@ fn ui(
     let now: DateTime<Utc> = Utc::now();
     let spain_time = now.with_timezone(&Madrid).format("%H:%M").to_string();
     let stlouis_time = now.with_timezone(&Chicago).format("%H:%M").to_string();
-    let date = now.with_timezone(&Madrid).format("%Y-%m-%d").to_string();
+    let day_date = format_header_day_date(now);
 
     let hostname = hostname::get().unwrap_or_else(|_| std::ffi::OsString::from("unknown"));
     let lock = if vpn { "🔒" } else { "🔓" };
@@ -392,7 +420,7 @@ fn ui(
         .alignment(Alignment::Center);
     frame.render_widget(hostname_para, header_chunks[1]);
 
-    let date_para = Paragraph::new(date)
+    let date_para = Paragraph::new(day_date)
         .style(Style::default().fg(Color::Cyan))
         .alignment(Alignment::Right);
     frame.render_widget(date_para, header_chunks[2]);
@@ -627,9 +655,35 @@ fn currency_emoji(currency: &str) -> &'static str {
     }
 }
 
+fn weekday_name_spanish(w: Weekday) -> &'static str {
+    match w {
+        Weekday::Mon => "Lunes",
+        Weekday::Tue => "Martes",
+        Weekday::Wed => "Miércoles",
+        Weekday::Thu => "Jueves",
+        Weekday::Fri => "Viernes",
+        Weekday::Sat => "Sábado",
+        Weekday::Sun => "Domingo",
+    }
+}
+
+/// Full weekday (English or Spanish) plus date in Madrid time. Language toggles each UTC minute.
+fn format_header_day_date(now: DateTime<Utc>) -> String {
+    let local = now.with_timezone(&Madrid);
+    let use_spanish = (now.timestamp() / 60) % 2 != 0;
+    let weekday = if use_spanish {
+        weekday_name_spanish(local.weekday()).to_string()
+    } else {
+        local.format("%A").to_string()
+    };
+    let date = local.format("%Y-%m-%d");
+    format!("{weekday} {date}")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use chrono::NaiveDate;
 
     fn make_statuses(entries: &[(&str, &str)]) -> Arc<Mutex<Vec<(String, String)>>> {
         Arc::new(Mutex::new(
@@ -680,5 +734,48 @@ mod tests {
         reset_statuses(&statuses);
         let locked = statuses.lock().unwrap();
         assert_eq!(locked[0].0, "...");
+    }
+
+    #[test]
+    fn spanish_weekday_names() {
+        assert_eq!(weekday_name_spanish(Weekday::Mon), "Lunes");
+        assert_eq!(weekday_name_spanish(Weekday::Wed), "Miércoles");
+        assert_eq!(weekday_name_spanish(Weekday::Sun), "Domingo");
+    }
+
+    #[test]
+    fn header_day_date_includes_date_and_weekday_word() {
+        let t = NaiveDate::from_ymd_opt(2024, 6, 15)
+            .unwrap()
+            .and_hms_opt(12, 0, 0)
+            .unwrap()
+            .and_utc();
+        let s = format_header_day_date(t);
+        assert!(s.contains("2024-06-15"));
+        assert!(s.contains("Saturday") || s.contains("Sábado"));
+    }
+
+    #[test]
+    fn header_day_date_toggles_weekday_language_each_utc_minute() {
+        let t0 = NaiveDate::from_ymd_opt(2024, 6, 15)
+            .unwrap()
+            .and_hms_opt(14, 30, 0)
+            .unwrap()
+            .and_utc();
+        let t1 = t0 + chrono::Duration::minutes(1);
+        let w0 = format_header_day_date(t0)
+            .split_whitespace()
+            .next()
+            .unwrap()
+            .to_string();
+        let w1 = format_header_day_date(t1)
+            .split_whitespace()
+            .next()
+            .unwrap()
+            .to_string();
+        assert_ne!(
+            w0, w1,
+            "adjacent UTC minutes should alternate English/Spanish weekday"
+        );
     }
 }

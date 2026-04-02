@@ -110,6 +110,29 @@ impl ConfigSource {
     }
 }
 
+pub fn load() -> (Config, ConfigSource) {
+    let path = match config_path() {
+        Some(p) => p,
+        None => return (Config::default(), ConfigSource::Default("no config dir".to_string())),
+    };
+
+    let contents = match fs::read_to_string(&path) {
+        Ok(s) => s,
+        Err(e) => return (
+            Config::default(),
+            ConfigSource::Default(format!("{}: {}", path.display(), e.kind())),
+        ),
+    };
+
+    match toml::from_str(&contents) {
+        Ok(cfg) => (cfg, ConfigSource::File(path)),
+        Err(e) => {
+            let reason = format!("parse error in {}: {}", path.display(), e);
+            (Config::default(), ConfigSource::Default(reason))
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -286,28 +309,5 @@ mod tests {
         let label = source.label();
         assert!(label.contains("default"));
         assert!(label.contains("file not found"));
-    }
-}
-
-pub fn load() -> (Config, ConfigSource) {
-    let path = match config_path() {
-        Some(p) => p,
-        None => return (Config::default(), ConfigSource::Default("no config dir".to_string())),
-    };
-
-    let contents = match fs::read_to_string(&path) {
-        Ok(s) => s,
-        Err(e) => return (
-            Config::default(),
-            ConfigSource::Default(format!("{}: {}", path.display(), e.kind())),
-        ),
-    };
-
-    match toml::from_str(&contents) {
-        Ok(cfg) => (cfg, ConfigSource::File(path)),
-        Err(e) => {
-            let reason = format!("parse error in {}: {}", path.display(), e);
-            (Config::default(), ConfigSource::Default(reason))
-        }
     }
 }
