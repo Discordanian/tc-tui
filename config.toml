@@ -23,6 +23,10 @@ sites = [
 weather_secs    = 1800   # 30 minutes
 url_check_secs  = 180    # 3 minutes
 cpu_sample_secs = 5      # 5 seconds
+currency_secs   = 3600   # 1 hour
 
 [display]
 cpu_history_len = 24     # bars shown in CPU graph (each = cpu_sample_secs)
+
+[currency]
+units = ["USD", "EUR"]   # exactly two preferred for converter panel

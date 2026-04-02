@@ -8,6 +8,8 @@ pub struct Config {
     pub urls: UrlsConfig,
     pub refresh: RefreshConfig,
     pub display: DisplayConfig,
+    #[serde(default)]
+    pub currency: CurrencyConfig,
 }
 
 #[derive(Deserialize, Clone)]
@@ -27,11 +29,30 @@ pub struct RefreshConfig {
     pub weather_secs: u64,
     pub url_check_secs: u64,
     pub cpu_sample_secs: u64,
+    #[serde(default = "default_currency_refresh_secs")]
+    pub currency_secs: u64,
+}
+
+fn default_currency_refresh_secs() -> u64 {
+    3600
 }
 
 #[derive(Deserialize, Clone)]
 pub struct DisplayConfig {
     pub cpu_history_len: usize,
+}
+
+#[derive(Deserialize, Clone)]
+pub struct CurrencyConfig {
+    pub units: Vec<String>,
+}
+
+impl Default for CurrencyConfig {
+    fn default() -> Self {
+        Self {
+            units: vec!["USD".to_string(), "EUR".to_string()],
+        }
+    }
 }
 
 impl Default for Config {
@@ -61,10 +82,12 @@ impl Default for Config {
                 weather_secs: 1800,
                 url_check_secs: 180,
                 cpu_sample_secs: 5,
+                currency_secs: 3600,
             },
             display: DisplayConfig {
                 cpu_history_len: 24,
             },
+            currency: CurrencyConfig::default(),
         }
     }
 }
@@ -134,12 +157,19 @@ mod tests {
         assert_eq!(cfg.refresh.weather_secs, 1800);
         assert_eq!(cfg.refresh.url_check_secs, 180);
         assert_eq!(cfg.refresh.cpu_sample_secs, 5);
+        assert_eq!(cfg.refresh.currency_secs, 3600);
     }
 
     #[test]
     fn default_cpu_history_len() {
         let cfg = Config::default();
         assert_eq!(cfg.display.cpu_history_len, 24);
+    }
+
+    #[test]
+    fn default_currency_units() {
+        let cfg = Config::default();
+        assert_eq!(cfg.currency.units, vec!["USD".to_string(), "EUR".to_string()]);
     }
 
     // --- TOML parsing ---
@@ -159,9 +189,13 @@ mod tests {
             weather_secs    = 60
             url_check_secs  = 30
             cpu_sample_secs = 1
+            currency_secs   = 3600
 
             [display]
             cpu_history_len = 10
+
+            [currency]
+            units = ["USD", "EUR"]
         "#;
         let cfg: Config = toml::from_str(toml).expect("should parse");
         assert_eq!(cfg.locations.len(), 1);
@@ -169,6 +203,8 @@ mod tests {
         assert_eq!(cfg.urls.sites[0], "https://example.com");
         assert_eq!(cfg.refresh.weather_secs, 60);
         assert_eq!(cfg.display.cpu_history_len, 10);
+        assert_eq!(cfg.refresh.currency_secs, 3600);
+        assert_eq!(cfg.currency.units, vec!["USD".to_string(), "EUR".to_string()]);
     }
 
     #[test]
@@ -191,13 +227,41 @@ mod tests {
             weather_secs    = 100
             url_check_secs  = 50
             cpu_sample_secs = 2
+            currency_secs   = 3600
 
             [display]
             cpu_history_len = 5
+
+            [currency]
+            units = ["USD", "EUR"]
         "#;
         let cfg: Config = toml::from_str(toml).expect("should parse");
         assert_eq!(cfg.locations.len(), 2);
         assert_eq!(cfg.locations[1].label, "City B");
+    }
+
+    #[test]
+    fn parse_without_currency_uses_default() {
+        let toml = r#"
+            [[locations]]
+            label = "Test City"
+            lat   = 1.0
+            lon   = 2.0
+
+            [urls]
+            sites = ["https://example.com"]
+
+            [refresh]
+            weather_secs    = 60
+            url_check_secs  = 30
+            cpu_sample_secs = 1
+
+            [display]
+            cpu_history_len = 10
+        "#;
+        let cfg: Config = toml::from_str(toml).expect("should parse with currency default");
+        assert_eq!(cfg.currency.units, vec!["USD".to_string(), "EUR".to_string()]);
+        assert_eq!(cfg.refresh.currency_secs, 3600);
     }
 
     #[test]

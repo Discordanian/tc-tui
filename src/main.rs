@@ -1,4 +1,5 @@
 mod config;
+mod currency;
 mod system;
 mod weather;
 
@@ -20,10 +21,12 @@ use std::thread;
 use std::time::{Duration, Instant};
 use sysinfo::System;
 use config::{Config, ConfigSource};
+use currency::{spawn_currency_fetcher, CurrencyRate};
 use system::{current_cpu_load, render_system_table, take_snapshot, SysSnapshot, SYSTEM_TABLE_HEIGHT};
 use weather::{spawn_weather_fetcher, WeatherInfo};
 
 const BAR_GRAPH_HEIGHT: u16 = 3;
+const CURRENCY_BOX_HEIGHT: u16 = 4;
 
 type Terminal = ratatui::Terminal<CrosstermBackend<Stdout>>;
 
@@ -140,6 +143,7 @@ fn spawn_status_checker(
 
 fn main() -> io::Result<()> {
     let (cfg, cfg_source) = config::load();
+    let (currency_a, currency_b) = currency_units(&cfg);
 
     let statuses: Arc<Mutex<Vec<(String, String)>>> = Arc::new(Mutex::new(
         cfg.urls.sites.iter().map(|url| ("...".to_string(), url.clone())).collect(),
@@ -150,17 +154,30 @@ fn main() -> io::Result<()> {
     ));
 
     let ip_city: Arc<Mutex<String>> = Arc::new(Mutex::new("...".to_string()));
+    let currency_rates: Arc<Mutex<(CurrencyRate, CurrencyRate)>> = Arc::new(Mutex::new((
+        CurrencyRate::pending(&currency_a, &currency_b),
+        CurrencyRate::pending(&currency_b, &currency_a),
+    )));
 
     let (status_refresh_tx, status_refresh_rx) = mpsc::channel();
     let (weather_refresh_tx, weather_refresh_rx) = mpsc::channel();
     let (ip_city_refresh_tx, ip_city_refresh_rx) = mpsc::channel();
+    let (currency_refresh_tx, currency_refresh_rx) = mpsc::channel();
 
     spawn_status_checker(Arc::clone(&statuses), status_refresh_rx, cfg.refresh.url_check_secs);
     spawn_weather_fetcher(Arc::clone(&weather), weather_refresh_rx, cfg.locations.clone(), cfg.refresh.weather_secs);
     spawn_ip_city_fetcher(Arc::clone(&ip_city), ip_city_refresh_rx, 300);
+    spawn_currency_fetcher(
+        Arc::clone(&currency_rates),
+        currency_refresh_rx,
+        currency_a.clone(),
+        currency_b.clone(),
+        cfg.refresh.currency_secs,
+    );
 
     // All refresh senders — add new ones here as panels are added
-    let refresh_senders: Vec<mpsc::Sender<()>> = vec![status_refresh_tx, weather_refresh_tx, ip_city_refresh_tx];
+    let refresh_senders: Vec<mpsc::Sender<()>> =
+        vec![status_refresh_tx, weather_refresh_tx, ip_city_refresh_tx, currency_refresh_tx];
 
     enable_raw_mode()?;
     let mut stdout = stdout();
@@ -168,7 +185,16 @@ fn main() -> io::Result<()> {
     let backend = CrosstermBackend::new(stdout);
     let mut terminal = Terminal::new(backend)?;
 
-    let result = run_app(&mut terminal, &statuses, &weather, &ip_city, &refresh_senders, &cfg, &cfg_source);
+    let result = run_app(
+        &mut terminal,
+        &statuses,
+        &weather,
+        &ip_city,
+        &currency_rates,
+        &refresh_senders,
+        &cfg,
+        &cfg_source,
+    );
 
     disable_raw_mode()?;
     execute!(terminal.backend_mut(), LeaveAlternateScreen)?;
@@ -182,6 +208,7 @@ fn run_app(
     statuses: &Arc<Mutex<Vec<(String, String)>>>,
     weather: &Arc<Mutex<Vec<WeatherInfo>>>,
     ip_city: &Arc<Mutex<String>>,
+    currency_rates: &Arc<Mutex<(CurrencyRate, CurrencyRate)>>,
     refresh_senders: &[mpsc::Sender<()>],
     cfg: &Config,
     cfg_source: &ConfigSource,
@@ -200,6 +227,8 @@ fn run_app(
     let vpn_refresh_secs = 300;
     let mut is_vpn_active = vpn_active();
     let mut last_vpn_check = Instant::now();
+    let mut currency_inputs = [String::from("1"), String::from("1")];
+    let mut active_currency_input = 0usize;
 
     loop {
         let now = Instant::now();
@@ -233,7 +262,26 @@ fn run_app(
             .unwrap_or_else(|e| e.into_inner())
             .clone();
         let city = ip_city.lock().unwrap_or_else(|e| e.into_inner()).clone();
-        terminal.draw(|frame| ui(frame, &status_data, &sys_snapshot, &history, &weather_data, &city, is_vpn_active, cpu_history_len, cfg_source))?;
+        let rate_data = currency_rates
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone();
+        terminal.draw(|frame| {
+            ui(
+                frame,
+                &status_data,
+                &sys_snapshot,
+                &history,
+                &weather_data,
+                &city,
+                is_vpn_active,
+                cpu_history_len,
+                cfg_source,
+                &currency_inputs,
+                active_currency_input,
+                &rate_data,
+            )
+        })?;
 
         if event::poll(Duration::from_millis(100))? {
             if let Event::Key(key) = event::read()? {
@@ -249,6 +297,15 @@ fn run_app(
                             is_vpn_active = vpn_active();
                             last_vpn_check = now;
                         }
+                        KeyCode::Tab | KeyCode::Down | KeyCode::Up => {
+                            active_currency_input = (active_currency_input + 1) % 2;
+                        }
+                        KeyCode::Backspace => {
+                            currency_inputs[active_currency_input].pop();
+                        }
+                        KeyCode::Char(c) if c.is_ascii_digit() || c == '.' => {
+                            currency_inputs[active_currency_input].push(c);
+                        }
                         _ => {}
                     }
                 }
@@ -257,7 +314,20 @@ fn run_app(
     }
 }
 
-fn ui(frame: &mut Frame, statuses: &[(String, String)], sys: &SysSnapshot, cpu_history: &[f32], weather: &[WeatherInfo], ip_city: &str, vpn: bool, cpu_history_len: usize, cfg_source: &ConfigSource) {
+fn ui(
+    frame: &mut Frame,
+    statuses: &[(String, String)],
+    sys: &SysSnapshot,
+    cpu_history: &[f32],
+    weather: &[WeatherInfo],
+    ip_city: &str,
+    vpn: bool,
+    cpu_history_len: usize,
+    cfg_source: &ConfigSource,
+    currency_inputs: &[String; 2],
+    active_currency_input: usize,
+    currency_rates: &(CurrencyRate, CurrencyRate),
+) {
     let area = frame.area();
 
     let chunks = Layout::default()
@@ -282,7 +352,8 @@ fn ui(frame: &mut Frame, statuses: &[(String, String)], sys: &SysSnapshot, cpu_h
         .constraints([
             Constraint::Length(statuses.len() as u16 + 3),
             Constraint::Length(SYSTEM_TABLE_HEIGHT),
-            Constraint::Length(BAR_GRAPH_HEIGHT + 3),
+            Constraint::Length(BAR_GRAPH_HEIGHT + 2),
+            Constraint::Length(CURRENCY_BOX_HEIGHT),
             Constraint::Min(0),
         ])
         .split(body_chunks[0]);
@@ -407,6 +478,45 @@ fn ui(frame: &mut Frame, statuses: &[(String, String)], sys: &SysSnapshot, cpu_h
         }
     }
 
+    let (ab, ba) = currency_rates;
+    let row1_value = parse_currency_input(&currency_inputs[0]);
+    let row2_value = parse_currency_input(&currency_inputs[1]);
+    let row1_converted = row1_value.map(|v| v * ab.rate);
+    let row2_converted = row2_value.map(|v| v * ba.rate);
+
+    let row1_input_style = if active_currency_input == 0 {
+        Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)
+    } else {
+        Style::default().fg(Color::White)
+    };
+    let row2_input_style = if active_currency_input == 1 {
+        Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)
+    } else {
+        Style::default().fg(Color::White)
+    };
+
+    let currency_lines = vec![
+        Line::from(vec![
+            Span::styled(format!("[{}]", currency_inputs[0]), row1_input_style),
+            Span::raw(format!(" {} => {}", ab.base, render_currency_value(row1_converted, &ab.quote))),
+        ]),
+        Line::from(vec![
+            Span::styled(format!("[{}]", currency_inputs[1]), row2_input_style),
+            Span::raw(format!(" {} => {}", ba.base, render_currency_value(row2_converted, &ba.quote))),
+        ]),
+    ];
+
+    let currency_panel = Paragraph::new(currency_lines).block(
+        Block::default()
+            .title(format!(
+                " Currency ({}/{}) ",
+                currency_status_icon(&ab.base, &ab.status),
+                currency_status_icon(&ba.base, &ba.status)
+            ))
+            .borders(Borders::ALL),
+    );
+    frame.render_widget(currency_panel, left_chunks[3]);
+
     // Right panel: split into weather (top) and main content (bottom)
     let right_chunks = Layout::default()
         .direction(Direction::Vertical)
@@ -463,6 +573,58 @@ fn ui(frame: &mut Frame, statuses: &[(String, String)], sys: &SysSnapshot, cpu_h
     let menu_bar = Paragraph::new(menu)
         .style(Style::default().bg(Color::DarkGray).fg(Color::White));
     frame.render_widget(menu_bar, chunks[2]);
+}
+
+fn currency_units(cfg: &Config) -> (String, String) {
+    let mut normalized: Vec<String> = cfg
+        .currency
+        .units
+        .iter()
+        .map(|u| u.trim().to_ascii_uppercase())
+        .filter(|u| !u.is_empty())
+        .collect();
+    normalized.dedup();
+    if normalized.len() >= 2 {
+        (normalized[0].clone(), normalized[1].clone())
+    } else {
+        ("USD".to_string(), "EUR".to_string())
+    }
+}
+
+fn parse_currency_input(raw: &str) -> Option<f64> {
+    if raw.is_empty() {
+        None
+    } else {
+        raw.parse::<f64>().ok()
+    }
+}
+
+fn render_currency_value(value: Option<f64>, unit: &str) -> String {
+    match value {
+        Some(v) => format!("{:.4} {}", v, unit),
+        None => format!("... {}", unit),
+    }
+}
+
+fn currency_status_icon(currency: &str, status: &str) -> &'static str {
+    if status == "OK" {
+        currency_emoji(currency)
+    } else {
+        "⚠️"
+    }
+}
+
+fn currency_emoji(currency: &str) -> &'static str {
+    match currency {
+        "USD" => "🇺🇸",
+        "EUR" => "🇪🇺",
+        "GBP" => "🇬🇧",
+        "JPY" => "🇯🇵",
+        "CAD" => "🇨🇦",
+        "AUD" => "🇦🇺",
+        "CHF" => "🇨🇭",
+        _ => "💱",
+    }
 }
 
 #[cfg(test)]
