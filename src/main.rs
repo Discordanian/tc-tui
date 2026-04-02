@@ -78,7 +78,13 @@ fn vpn_active() -> bool {
 }
 
 fn fetch_status(url: &str) -> String {
-    match ureq::get(url).call() {
+    match ureq::builder()
+        .timeout_connect(Duration::from_secs(5))
+        .timeout(Duration::from_secs(10))
+        .build()
+        .get(url)
+        .call()
+    {
         Ok(resp) => resp.status().to_string(),
         Err(ureq::Error::Status(code, _)) => code.to_string(),
         Err(_) => "ERR".to_string(),
