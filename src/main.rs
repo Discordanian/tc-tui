@@ -706,17 +706,21 @@ fn weekday_name_spanish(w: Weekday) -> &'static str {
     }
 }
 
-/// Full weekday (English or Spanish) plus date in Madrid time. Language toggles each UTC minute.
+/// Weekday + date: Spanish uses Europe/Madrid; English uses America/Chicago (St. Louis).
+/// Language toggles each UTC minute.
 fn format_header_day_date(now: DateTime<Utc>) -> String {
-    let local = now.with_timezone(&Madrid);
     let use_spanish = (now.timestamp() / 60) % 2 != 0;
-    let weekday = if use_spanish {
-        weekday_name_spanish(local.weekday()).to_string()
+    if use_spanish {
+        let local = now.with_timezone(&Madrid);
+        let weekday = weekday_name_spanish(local.weekday());
+        let date = local.format("%Y-%m-%d");
+        format!("{weekday} {date}")
     } else {
-        local.format("%A").to_string()
-    };
-    let date = local.format("%Y-%m-%d");
-    format!("{weekday} {date}")
+        let local = now.with_timezone(&Chicago);
+        let weekday = local.format("%A");
+        let date = local.format("%Y-%m-%d");
+        format!("{weekday} {date}")
+    }
 }
 
 #[cfg(test)]
