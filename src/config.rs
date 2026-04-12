@@ -10,6 +10,8 @@ pub struct Config {
     pub display: DisplayConfig,
     #[serde(default)]
     pub currency: CurrencyConfig,
+    #[serde(default)]
+    pub github: GitHubConfig,
 }
 
 #[derive(Deserialize, Clone)]
@@ -31,10 +33,16 @@ pub struct RefreshConfig {
     pub cpu_sample_secs: u64,
     #[serde(default = "default_currency_refresh_secs")]
     pub currency_secs: u64,
+    #[serde(default = "default_github_refresh_secs")]
+    pub github_secs: u64,
 }
 
 fn default_currency_refresh_secs() -> u64 {
     3600
+}
+
+fn default_github_refresh_secs() -> u64 {
+    1800
 }
 
 #[derive(Deserialize, Clone)]
@@ -51,6 +59,24 @@ impl Default for CurrencyConfig {
     fn default() -> Self {
         Self {
             units: vec!["USD".to_string(), "EUR".to_string()],
+        }
+    }
+}
+
+#[derive(Deserialize, Clone)]
+pub struct GitHubConfig {
+    #[serde(default = "default_github_username")]
+    pub username: String,
+}
+
+fn default_github_username() -> String {
+    "Discordanian".to_string()
+}
+
+impl Default for GitHubConfig {
+    fn default() -> Self {
+        Self {
+            username: default_github_username(),
         }
     }
 }
@@ -83,11 +109,13 @@ impl Default for Config {
                 url_check_secs: 180,
                 cpu_sample_secs: 5,
                 currency_secs: 3600,
+                github_secs: 1800,
             },
             display: DisplayConfig {
                 cpu_history_len: 24,
             },
             currency: CurrencyConfig::default(),
+            github: GitHubConfig::default(),
         }
     }
 }
@@ -181,6 +209,7 @@ mod tests {
         assert_eq!(cfg.refresh.url_check_secs, 180);
         assert_eq!(cfg.refresh.cpu_sample_secs, 5);
         assert_eq!(cfg.refresh.currency_secs, 3600);
+        assert_eq!(cfg.refresh.github_secs, 1800);
     }
 
     #[test]
@@ -193,6 +222,12 @@ mod tests {
     fn default_currency_units() {
         let cfg = Config::default();
         assert_eq!(cfg.currency.units, vec!["USD".to_string(), "EUR".to_string()]);
+    }
+
+    #[test]
+    fn default_github_username() {
+        let cfg = Config::default();
+        assert_eq!(cfg.github.username, "Discordanian");
     }
 
     // --- TOML parsing ---

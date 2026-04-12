@@ -1,5 +1,6 @@
 mod config;
 mod currency;
+mod github;
 mod system;
 mod weather;
 
@@ -22,6 +23,7 @@ use std::time::{Duration, Instant};
 use sysinfo::System;
 use config::{Config, ConfigSource};
 use currency::{spawn_currency_fetcher, CurrencyRate};
+use github::{spawn_github_fetcher, GitHubActivity};
 use system::{current_cpu_load, render_system_table, take_snapshot, SysSnapshot, SYSTEM_TABLE_HEIGHT};
 use weather::{spawn_weather_fetcher, WeatherInfo};
 
@@ -35,6 +37,7 @@ struct RunAppModel<'a> {
     weather: &'a Arc<Mutex<Vec<WeatherInfo>>>,
     ip_city: &'a Arc<Mutex<String>>,
     currency_rates: &'a Arc<Mutex<(CurrencyRate, CurrencyRate)>>,
+    github_activity: &'a Arc<Mutex<GitHubActivity>>,
     refresh_senders: &'a [mpsc::Sender<()>],
     cfg: &'a Config,
     cfg_source: &'a ConfigSource,
@@ -52,6 +55,7 @@ struct UiModel<'a> {
     currency_inputs: &'a [String; 2],
     active_currency_input: usize,
     currency_rates: &'a (CurrencyRate, CurrencyRate),
+    github_activity: &'a GitHubActivity,
 }
 
 fn fetch_ip_city() -> String {
@@ -183,10 +187,14 @@ fn main() -> io::Result<()> {
         CurrencyRate::pending(&currency_b, &currency_a),
     )));
 
+    let github_activity: Arc<Mutex<GitHubActivity>> =
+        Arc::new(Mutex::new(GitHubActivity::pending()));
+
     let (status_refresh_tx, status_refresh_rx) = mpsc::channel();
     let (weather_refresh_tx, weather_refresh_rx) = mpsc::channel();
     let (ip_city_refresh_tx, ip_city_refresh_rx) = mpsc::channel();
     let (currency_refresh_tx, currency_refresh_rx) = mpsc::channel();
+    let (github_refresh_tx, github_refresh_rx) = mpsc::channel();
 
     spawn_status_checker(Arc::clone(&statuses), status_refresh_rx, cfg.refresh.url_check_secs);
     spawn_weather_fetcher(Arc::clone(&weather), weather_refresh_rx, cfg.locations.clone(), cfg.refresh.weather_secs);
@@ -198,10 +206,16 @@ fn main() -> io::Result<()> {
         currency_b.clone(),
         cfg.refresh.currency_secs,
     );
+    spawn_github_fetcher(
+        Arc::clone(&github_activity),
+        github_refresh_rx,
+        cfg.github.username.clone(),
+        cfg.refresh.github_secs,
+    );
 
     // All refresh senders — add new ones here as panels are added
     let refresh_senders: Vec<mpsc::Sender<()>> =
-        vec![status_refresh_tx, weather_refresh_tx, ip_city_refresh_tx, currency_refresh_tx];
+        vec![status_refresh_tx, weather_refresh_tx, ip_city_refresh_tx, currency_refresh_tx, github_refresh_tx];
 
     enable_raw_mode()?;
     let mut stdout = stdout();
@@ -216,6 +230,7 @@ fn main() -> io::Result<()> {
             weather: &weather,
             ip_city: &ip_city,
             currency_rates: &currency_rates,
+            github_activity: &github_activity,
             refresh_senders: &refresh_senders,
             cfg: &cfg,
             cfg_source: &cfg_source,
@@ -235,6 +250,7 @@ fn run_app(terminal: &mut Terminal, model: RunAppModel<'_>) -> io::Result<()> {
         weather,
         ip_city,
         currency_rates,
+        github_activity,
         refresh_senders,
         cfg,
         cfg_source,
@@ -292,6 +308,10 @@ fn run_app(terminal: &mut Terminal, model: RunAppModel<'_>) -> io::Result<()> {
             .lock()
             .unwrap_or_else(|e| e.into_inner())
             .clone();
+        let gh_data = github_activity
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone();
         terminal.draw(|frame| {
             ui(
                 frame,
@@ -307,6 +327,7 @@ fn run_app(terminal: &mut Terminal, model: RunAppModel<'_>) -> io::Result<()> {
                     currency_inputs: &currency_inputs,
                     active_currency_input,
                     currency_rates: &rate_data,
+                    github_activity: &gh_data,
                 },
             )
         })?;
@@ -355,6 +376,7 @@ fn ui(frame: &mut Frame, m: UiModel<'_>) {
         currency_inputs,
         active_currency_input,
         currency_rates,
+        github_activity,
     } = m;
     let area = frame.area();
 
@@ -545,11 +567,12 @@ fn ui(frame: &mut Frame, m: UiModel<'_>) {
     );
     frame.render_widget(currency_panel, left_chunks[3]);
 
-    // Right panel: split into weather (top) and main content (bottom)
+    // Right panel: split into weather (top), github (middle), and main content (bottom)
     let right_chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
             Constraint::Length(4),
+            Constraint::Length(3),
             Constraint::Min(0),
         ])
         .split(body_chunks[1]);
@@ -575,6 +598,22 @@ fn ui(frame: &mut Frame, m: UiModel<'_>) {
         .block(Block::default().title(" Weather ").borders(Borders::ALL));
     frame.render_widget(weather_para, right_chunks[0]);
 
+    // GitHub activity emoji row
+    let gh_block = Block::default()
+        .title(format!(" GitHub ({}) ", github_activity.status))
+        .borders(Borders::ALL);
+    let gh_inner_width = gh_block.inner(right_chunks[1]).width as usize;
+    let max_days = (gh_inner_width + 1) / 3; // each emoji ~2 cols + 1 space
+    let emoji_str: String = github_activity
+        .days
+        .iter()
+        .take(max_days)
+        .map(|(_, count)| GitHubActivity::emoji_for_count(*count))
+        .collect::<Vec<&str>>()
+        .join(" ");
+    let gh_para = Paragraph::new(emoji_str).block(gh_block);
+    frame.render_widget(gh_para, right_chunks[1]);
+
     // Main content
     let block = Block::default()
         .title(" Tangential Cold TUI ")
@@ -584,7 +623,7 @@ fn ui(frame: &mut Frame, m: UiModel<'_>) {
         .block(block)
         .alignment(Alignment::Center);
 
-    frame.render_widget(paragraph, right_chunks[1]);
+    frame.render_widget(paragraph, right_chunks[2]);
 
     // Bottom menu bar
     let cfg_style = match cfg_source {
