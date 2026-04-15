@@ -7,20 +7,20 @@ Tangential Cold TUI — a terminal dashboard built with [Ratatui](https://ratatu
 The screen is divided into three horizontal bands: a header bar, a two-column body, and a footer menu bar.
 
 ```
-┌────────────────────────────────────────────────────────────┐
+┌──────────────────────────────────────────────────────────────┐
 │  🇪🇸 HH:MM │ 🇺🇸 HH:MM    (city) 🔒 hostname    Day YYYY-MM-DD │  ← Header
-├──────────────────┬─────────────────────────────────────────┤
-│  URL Status      │  Weather                                │
-│  ────────────    │  ────────────────────────────────────── │
-│  System Info     │  GitHub (username)                      │
-│  ────────────    │  ────────────────────────────────────── │
-│  CPU History     │                                         │
-│  ────────────    │  Tangential Cold TUI                    │
-│  Currency        │                                         │
-│                  │                                         │
-├──────────────────┴─────────────────────────────────────────┤
-│  q Quit  r Refresh  cfg: ...                               │  ← Footer
-└────────────────────────────────────────────────────────────┘
+├────────────────────┬─────────────────────────────────────────┤
+│  URL Status      │  Weather                                  │
+│  ────────────    │  ──────────────────────────────────────── │
+│  System Info     │  GitHub (username)                        │
+│  ────────────    │  ──────────────────────────────────────── │
+│  CPU History     │                                           │
+│  ────────────    │  Tangential Cold TUI                      │
+│  Currency        │                                           │
+│                  │                                           │
+├──────────────────┴───────────────────────────────────────────┤
+│  q Quit  r Refresh  cfg: ...                                 │  ← Footer
+└──────────────────────────────────────────────────────────────┘
 ```
 
 ### Header
