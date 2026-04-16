@@ -9,7 +9,7 @@ The screen is divided into three horizontal bands: a header bar, a two-column bo
 ```
 ┌──────────────────────────────────────────────────────────────┐
 │  🇪🇸 HH:MM │ 🇺🇸 HH:MM    (city) 🔒 hostname    Day YYYY-MM-DD │  ← Header
-├────────────────────┬─────────────────────────────────────────┤
+├──────────────────┬───────────────────────────────────────────┤
 │  URL Status      │  Weather                                  │
 │  ────────────    │  ──────────────────────────────────────── │
 │  System Info     │  GitHub (username)                        │
