@@ -200,21 +200,29 @@ mod tests {
 
     #[test]
     fn parse_contribution_html_real_format() {
-        let html = r#"
-<td tabindex="0" data-ix="0" data-date="2025-04-13" id="contribution-day-component-0-0" data-level="3" class="ContributionCalendar-day"></td>
-  <tool-tip id="tooltip-1" for="contribution-day-component-0-0" class="sr-only">28 contributions on April 13th.</tool-tip>
-<td tabindex="0" data-ix="1" data-date="2025-04-14" id="contribution-day-component-0-1" data-level="0" class="ContributionCalendar-day"></td>
-  <tool-tip id="tooltip-2" for="contribution-day-component-0-1" class="sr-only">No contributions on April 14th.</tool-tip>
-<td tabindex="0" data-ix="2" data-date="2025-04-15" id="contribution-day-component-0-2" data-level="1" class="ContributionCalendar-day"></td>
-  <tool-tip id="tooltip-3" for="contribution-day-component-0-2" class="sr-only">3 contributions on April 15th.</tool-tip>
-        "#;
-        let result = parse_contribution_html(html);
+        // Use dates relative to today so the test is not time-sensitive;
+        // parse_contribution_html filters to the last 366 days.
+        let today = Utc::now().date_naive();
+        let d1 = today - chrono::Duration::days(7);
+        let d2 = today - chrono::Duration::days(6);
+        let d3 = today - chrono::Duration::days(5);
+        let html = format!(
+            r#"
+<td tabindex="0" data-ix="0" data-date="{d1}" id="contribution-day-component-0-0" data-level="3" class="ContributionCalendar-day"></td>
+  <tool-tip id="tooltip-1" for="contribution-day-component-0-0" class="sr-only">28 contributions on some day.</tool-tip>
+<td tabindex="0" data-ix="1" data-date="{d2}" id="contribution-day-component-0-1" data-level="0" class="ContributionCalendar-day"></td>
+  <tool-tip id="tooltip-2" for="contribution-day-component-0-1" class="sr-only">No contributions on some day.</tool-tip>
+<td tabindex="0" data-ix="2" data-date="{d3}" id="contribution-day-component-0-2" data-level="1" class="ContributionCalendar-day"></td>
+  <tool-tip id="tooltip-3" for="contribution-day-component-0-2" class="sr-only">3 contributions on some day.</tool-tip>
+        "#
+        );
+        let result = parse_contribution_html(&html);
         assert!(result.is_ok());
         let days = result.unwrap();
         let map: HashMap<NaiveDate, u32> = days.into_iter().collect();
-        assert_eq!(map[&NaiveDate::from_ymd_opt(2025, 4, 13).unwrap()], 28);
-        assert_eq!(map[&NaiveDate::from_ymd_opt(2025, 4, 14).unwrap()], 0);
-        assert_eq!(map[&NaiveDate::from_ymd_opt(2025, 4, 15).unwrap()], 3);
+        assert_eq!(map[&d1], 28);
+        assert_eq!(map[&d2], 0);
+        assert_eq!(map[&d3], 3);
     }
 
     #[test]
