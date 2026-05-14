@@ -2,6 +2,8 @@
 
 Tangential Cold TUI — a terminal dashboard built with [Ratatui](https://ratatui.rs) that displays system info, weather, website health, currency conversion, and GitHub activity at a glance.
 
+
+
 ## Layout
 
 The screen is divided into three horizontal bands: a header bar, a two-column body, and a footer menu bar.
