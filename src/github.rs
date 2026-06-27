@@ -30,10 +30,10 @@ impl GitHubActivity {
 
 fn fetch_contributions(username: &str) -> Result<Vec<(NaiveDate, u32)>, String> {
     let url = format!("https://github.com/users/{}/contributions", username);
-    let resp = ureq::get(&url)
+    let mut resp = ureq::get(&url)
         .call()
         .map_err(|e| format!("HTTP error: {e}"))?;
-    let body = resp.into_string().map_err(|e| format!("Read error: {e}"))?;
+    let body = resp.body_mut().read_to_string().map_err(|e| format!("Read error: {e}"))?;
     parse_contribution_html(&body)
 }
 

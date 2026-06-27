@@ -65,7 +65,7 @@ fn fetch_ip_city() -> String {
         region: Option<String>,
     }
     match ureq::get("https://ipinfo.io/json").call() {
-        Ok(resp) => match resp.into_json::<IpInfo>() {
+        Ok(mut resp) => match resp.body_mut().read_json::<IpInfo>() {
             Ok(info) => match (info.city, info.region) {
                 (Some(c), Some(r)) => format!("{}, {}", c, r),
                 (Some(c), None) => c,
@@ -109,15 +109,16 @@ fn vpn_active() -> bool {
 }
 
 fn fetch_status(url: &str) -> String {
-    match ureq::builder()
-        .timeout_connect(Duration::from_secs(5))
-        .timeout(Duration::from_secs(10))
+    match ureq::Agent::config_builder()
+        .timeout_connect(Some(Duration::from_secs(5)))
+        .timeout_global(Some(Duration::from_secs(10)))
         .build()
+        .new_agent()
         .get(url)
         .call()
     {
-        Ok(resp) => resp.status().to_string(),
-        Err(ureq::Error::Status(code, _)) => code.to_string(),
+        Ok(resp) => resp.status().as_u16().to_string(),
+        Err(ureq::Error::StatusCode(code)) => code.to_string(),
         Err(_) => "ERR".to_string(),
     }
 }

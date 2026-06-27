@@ -87,7 +87,7 @@ fn fetch_weather(city: &str, lat: f64, lon: f64) -> Option<WeatherInfo> {
          &forecast_days=1"
     );
 
-    let resp: OpenMeteoResponse = ureq::get(&url).call().ok()?.into_json().ok()?;
+    let resp: OpenMeteoResponse = ureq::get(&url).call().ok()?.body_mut().read_json().ok()?;
 
     let current_c = resp.current.temperature_2m;
     let high_c = *resp.daily.temperature_2m_max.first()?;

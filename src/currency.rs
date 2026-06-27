@@ -32,7 +32,7 @@ fn fetch_rate(base: &str, quote: &str) -> Option<f64> {
         "https://api.frankfurter.app/latest?amount=1&from={}&to={}",
         base, quote
     );
-    let resp: FrankfurterResponse = ureq::get(&url).call().ok()?.into_json().ok()?;
+    let resp: FrankfurterResponse = ureq::get(&url).call().ok()?.body_mut().read_json().ok()?;
     resp.rates.get(quote).copied()
 }
 
