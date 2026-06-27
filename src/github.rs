@@ -38,22 +38,32 @@ fn fetch_contributions(username: &str) -> Result<Vec<(NaiveDate, u32)>, String> 
 }
 
 fn parse_contribution_html(html: &str) -> Result<Vec<(NaiveDate, u32)>, String> {
+    // First build a complete id -> date map from all <td> elements, then match
+    // each <tool-tip for="id"> to its date. This is robust against HTML layouts
+    // where all <td> cells appear before all <tool-tip> elements.
+    let mut id_to_date: HashMap<String, NaiveDate> = HashMap::new();
     let mut days: HashMap<NaiveDate, u32> = HashMap::new();
-    let mut last_date: Option<NaiveDate> = None;
 
     for line in html.lines() {
         let trimmed = line.trim();
 
-        if let Some(date_str) = extract_attr(trimmed, "data-date") {
+        // Collect id -> date from <td id="..." data-date="..."> elements.
+        if let (Some(date_str), Some(id_str)) = (
+            extract_attr(trimmed, "data-date"),
+            extract_attr(trimmed, "id"),
+        ) {
             if let Ok(d) = NaiveDate::parse_from_str(&date_str, "%Y-%m-%d") {
-                last_date = Some(d);
+                id_to_date.insert(id_str, d);
             }
         }
 
+        // Match each <tool-tip for="id"> to its date via the id map.
         if trimmed.contains("<tool-tip") {
-            if let Some(date) = last_date.take() {
-                let count = parse_tooltip_count(trimmed);
-                days.insert(date, count);
+            if let Some(for_id) = extract_attr(trimmed, "for") {
+                if let Some(&date) = id_to_date.get(&for_id) {
+                    let count = parse_tooltip_count(trimmed);
+                    days.insert(date, count);
+                }
             }
         }
     }
@@ -230,6 +240,31 @@ mod tests {
         let html = "<html><body>nothing here</body></html>";
         let result = parse_contribution_html(html);
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn parse_contribution_html_grouped_layout() {
+        // GitHub sometimes renders all <td> cells first, then all <tool-tip> elements.
+        // The old positional last_date approach broke in this layout; the id->for fix handles it.
+        let today = Utc::now().date_naive();
+        let d1 = today - chrono::Duration::days(2);
+        let d2 = today - chrono::Duration::days(1);
+        let d3 = today;
+        let html = format!(
+            r#"
+<td data-date="{d1}" id="contrib-0"></td>
+<td data-date="{d2}" id="contrib-1"></td>
+<td data-date="{d3}" id="contrib-2"></td>
+<tool-tip for="contrib-0" class="sr-only">4 contributions on some day.</tool-tip>
+<tool-tip for="contrib-1" class="sr-only">No contributions on some day.</tool-tip>
+<tool-tip for="contrib-2" class="sr-only">7 contributions on some day.</tool-tip>
+            "#
+        );
+        let result = parse_contribution_html(&html).expect("should parse grouped layout");
+        let map: HashMap<NaiveDate, u32> = result.into_iter().collect();
+        assert_eq!(map[&d1], 4, "d1 should be 4");
+        assert_eq!(map[&d2], 0, "d2 should be 0");
+        assert_eq!(map[&d3], 7, "today should be 7");
     }
 
     #[test]
