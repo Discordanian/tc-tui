@@ -568,42 +568,51 @@ fn ui(frame: &mut Frame, m: UiModel<'_>) {
     );
     frame.render_widget(currency_panel, left_chunks[3]);
 
-    // Right panel: split into weather (top), github (middle), and main content (bottom)
+    // Right panel: weather (optional), github, main content
+    let show_weather = !weather.is_empty();
+    let mut right_constraints: Vec<Constraint> = Vec::new();
+    if show_weather {
+        right_constraints.push(Constraint::Length(weather.len() as u16 + 2));
+    }
+    right_constraints.push(Constraint::Length(3));
+    right_constraints.push(Constraint::Min(0));
+
     let right_chunks = Layout::default()
         .direction(Direction::Vertical)
-        .constraints([
-            Constraint::Length(4),
-            Constraint::Length(3),
-            Constraint::Min(0),
-        ])
+        .constraints(right_constraints)
         .split(body_chunks[1]);
 
-    // Weather box
-    let weather_lines: Vec<Line> = weather.iter().map(|w| {
-        Line::from(vec![
-            Span::styled(
-                format!("{:<12}", w.city),
-                Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD),
-            ),
-            Span::raw(format!(
-                " {:>5.1}°F ({:>5.1}°C)  H:{:.1}°F ({:.1}°C)  L:{:.1}°F ({:.1}°C)  {} {}",
-                w.current_f, w.current_c,
-                w.high_f, w.high_c,
-                w.low_f, w.low_c,
-                w.emoji, w.description,
-            )),
-        ])
-    }).collect();
+    let mut right_idx = 0usize;
 
-    let weather_para = Paragraph::new(weather_lines)
-        .block(Block::default().title(" Weather ").borders(Borders::ALL));
-    frame.render_widget(weather_para, right_chunks[0]);
+    // Weather box (only rendered when locations are configured)
+    if show_weather {
+        let weather_lines: Vec<Line> = weather.iter().map(|w| {
+            Line::from(vec![
+                Span::styled(
+                    format!("{:<12}", w.city),
+                    Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD),
+                ),
+                Span::raw(format!(
+                    " {:>5.1}°F ({:>5.1}°C)  H:{:.1}°F ({:.1}°C)  L:{:.1}°F ({:.1}°C)  {} {}",
+                    w.current_f, w.current_c,
+                    w.high_f, w.high_c,
+                    w.low_f, w.low_c,
+                    w.emoji, w.description,
+                )),
+            ])
+        }).collect();
+
+        let weather_para = Paragraph::new(weather_lines)
+            .block(Block::default().title(" Weather ").borders(Borders::ALL));
+        frame.render_widget(weather_para, right_chunks[right_idx]);
+        right_idx += 1;
+    }
 
     // GitHub activity emoji row
     let gh_block = Block::default()
         .title(format!(" GitHub ({}) ", github_activity.status))
         .borders(Borders::ALL);
-    let gh_inner_width = gh_block.inner(right_chunks[1]).width as usize;
+    let gh_inner_width = gh_block.inner(right_chunks[right_idx]).width as usize;
     let max_days = (gh_inner_width + 1) / 3; // each emoji ~2 cols + 1 space
     let emoji_str: String = github_activity
         .days
@@ -613,7 +622,8 @@ fn ui(frame: &mut Frame, m: UiModel<'_>) {
         .collect::<Vec<&str>>()
         .join(" ");
     let gh_para = Paragraph::new(emoji_str).block(gh_block);
-    frame.render_widget(gh_para, right_chunks[1]);
+    frame.render_widget(gh_para, right_chunks[right_idx]);
+    right_idx += 1;
 
     // Main content
     let block = Block::default()
@@ -624,7 +634,7 @@ fn ui(frame: &mut Frame, m: UiModel<'_>) {
         .block(block)
         .alignment(Alignment::Center);
 
-    frame.render_widget(paragraph, right_chunks[2]);
+    frame.render_widget(paragraph, right_chunks[right_idx]);
 
     // Bottom menu bar
     let cfg_style = match cfg_source {
@@ -783,8 +793,102 @@ mod tests {
     #[test]
     fn spanish_weekday_names() {
         assert_eq!(weekday_name_spanish(Weekday::Mon), "Lunes");
+        assert_eq!(weekday_name_spanish(Weekday::Tue), "Martes");
         assert_eq!(weekday_name_spanish(Weekday::Wed), "Miércoles");
+        assert_eq!(weekday_name_spanish(Weekday::Thu), "Jueves");
+        assert_eq!(weekday_name_spanish(Weekday::Fri), "Viernes");
+        assert_eq!(weekday_name_spanish(Weekday::Sat), "Sábado");
         assert_eq!(weekday_name_spanish(Weekday::Sun), "Domingo");
+    }
+
+    // --- parse_currency_input ---
+
+    #[test]
+    fn parse_currency_input_empty_is_none() {
+        assert_eq!(parse_currency_input(""), None);
+    }
+
+    #[test]
+    fn parse_currency_input_valid_integer() {
+        assert_eq!(parse_currency_input("42"), Some(42.0));
+    }
+
+    #[test]
+    fn parse_currency_input_valid_float() {
+        let v = parse_currency_input("3.14").unwrap();
+        assert!((v - 3.14).abs() < 1e-9);
+    }
+
+    #[test]
+    fn parse_currency_input_invalid_is_none() {
+        assert_eq!(parse_currency_input("abc"), None);
+        assert_eq!(parse_currency_input("1.2.3"), None);
+    }
+
+    // --- render_currency_value ---
+
+    #[test]
+    fn render_currency_value_some_formats_four_decimals() {
+        assert_eq!(render_currency_value(Some(1.5), "EUR"), "1.5000 EUR");
+    }
+
+    #[test]
+    fn render_currency_value_none_uses_placeholder() {
+        assert_eq!(render_currency_value(None, "GBP"), "... GBP");
+    }
+
+    // --- currency_units ---
+
+    #[test]
+    fn currency_units_picks_first_two() {
+        let mut cfg = config::Config::default();
+        cfg.currency.units = vec!["gbp".to_string(), "jpy".to_string()];
+        let (a, b) = currency_units(&cfg);
+        assert_eq!(a, "GBP");
+        assert_eq!(b, "JPY");
+    }
+
+    #[test]
+    fn currency_units_trims_and_uppercases() {
+        let mut cfg = config::Config::default();
+        cfg.currency.units = vec!["  usd  ".to_string(), " eur ".to_string()];
+        let (a, b) = currency_units(&cfg);
+        assert_eq!(a, "USD");
+        assert_eq!(b, "EUR");
+    }
+
+    #[test]
+    fn currency_units_deduplicates() {
+        // Both entries are the same after normalisation → fewer than 2 → fallback
+        let mut cfg = config::Config::default();
+        cfg.currency.units = vec!["USD".to_string(), "USD".to_string()];
+        let (a, b) = currency_units(&cfg);
+        assert_eq!((a.as_str(), b.as_str()), ("USD", "EUR"));
+    }
+
+    #[test]
+    fn currency_units_fewer_than_two_falls_back() {
+        let mut cfg = config::Config::default();
+        cfg.currency.units = vec!["CHF".to_string()];
+        let (a, b) = currency_units(&cfg);
+        assert_eq!((a.as_str(), b.as_str()), ("USD", "EUR"));
+    }
+
+    #[test]
+    fn currency_units_empty_falls_back() {
+        let mut cfg = config::Config::default();
+        cfg.currency.units = vec![];
+        let (a, b) = currency_units(&cfg);
+        assert_eq!((a.as_str(), b.as_str()), ("USD", "EUR"));
+    }
+
+    #[test]
+    fn currency_units_filters_blank_entries() {
+        // A blank entry is filtered out; only one real unit remains → fallback
+        let mut cfg = config::Config::default();
+        cfg.currency.units = vec!["USD".to_string(), "  ".to_string()];
+        let (a, b) = currency_units(&cfg);
+        assert_eq!((a.as_str(), b.as_str()), ("USD", "EUR"));
     }
 
     #[test]

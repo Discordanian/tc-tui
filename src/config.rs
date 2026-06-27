@@ -4,6 +4,7 @@ use std::path::PathBuf;
 
 #[derive(Deserialize, Clone)]
 pub struct Config {
+    #[serde(default)]
     pub locations: Vec<LocationConfig>,
     pub urls: UrlsConfig,
     pub refresh: RefreshConfig,
@@ -327,6 +328,24 @@ mod tests {
         let bad = "this is not valid toml :::";
         let result: Result<Config, _> = toml::from_str(bad);
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn parse_zero_locations() {
+        let toml = r#"
+            [urls]
+            sites = ["https://example.com"]
+
+            [refresh]
+            weather_secs    = 60
+            url_check_secs  = 30
+            cpu_sample_secs = 1
+
+            [display]
+            cpu_history_len = 10
+        "#;
+        let cfg: Config = toml::from_str(toml).expect("should parse with no locations");
+        assert!(cfg.locations.is_empty());
     }
 
     // --- ConfigSource::label ---
