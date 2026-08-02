@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["crates/tc-core", "crates/tc-ratatui"]
+members = ["crates/tc-core", "crates/tc-ratatui", "crates/tc-iced"]
 
 [workspace.package]
 version = "0.1.0"

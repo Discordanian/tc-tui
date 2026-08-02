@@ -1,0 +1,16 @@
+[package]
+name = "tc-iced"
+version.workspace = true
+edition.workspace = true
+description = "Tangential Cold (iced frontend)"
+
+[[bin]]
+name = "tc-iced"
+path = "src/main.rs"
+
+[dependencies]
+tc-core.workspace = true
+chrono.workspace = true
+chrono-tz.workspace = true
+hostname.workspace = true
+iced = { version = "0.13", features = ["tokio"] }
