@@ -1,0 +1,17 @@
+[package]
+name = "tc-ratatui"
+version.workspace = true
+edition.workspace = true
+description = "Tangential Cold TUI (ratatui frontend)"
+
+[[bin]]
+name = "tc-ratatui"
+path = "src/main.rs"
+
+[dependencies]
+tc-core.workspace = true
+ratatui.workspace = true
+crossterm.workspace = true
+chrono.workspace = true
+chrono-tz.workspace = true
+hostname.workspace = true

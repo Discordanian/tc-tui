@@ -1,0 +1,15 @@
+[package]
+name = "tc-core"
+version.workspace = true
+edition.workspace = true
+description = "Tangential Cold — shared core (data + fetchers, UI-agnostic)"
+
+[dependencies]
+chrono.workspace = true
+chrono-tz.workspace = true
+ureq.workspace = true
+serde.workspace = true
+sysinfo.workspace = true
+toml.workspace = true
+dirs.workspace = true
+if-addrs.workspace = true

@@ -1839,21 +1839,29 @@ dependencies = [
 ]
 
 [[package]]
-name = "tc-tui"
+name = "tc-core"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "chrono-tz",
+ "dirs",
+ "if-addrs",
+ "serde",
+ "sysinfo",
+ "toml",
+ "ureq",
+]
+
+[[package]]
+name = "tc-ratatui"
 version = "0.1.0"
 dependencies = [
  "chrono",
  "chrono-tz",
  "crossterm",
- "dirs",
  "hostname",
- "if-addrs",
  "ratatui",
- "serde",
- "serde_json",
- "sysinfo",
- "toml",
- "ureq",
+ "tc-core",
 ]
 
 [[package]]

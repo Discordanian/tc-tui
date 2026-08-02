@@ -165,6 +165,24 @@ pub fn load() -> (Config, ConfigSource) {
     }
 }
 
+/// Normalise the configured currency units and pick the first two distinct
+/// codes. Falls back to `("USD", "EUR")` when fewer than two are available.
+pub fn currency_units(cfg: &Config) -> (String, String) {
+    let mut normalized: Vec<String> = cfg
+        .currency
+        .units
+        .iter()
+        .map(|u| u.trim().to_ascii_uppercase())
+        .filter(|u| !u.is_empty())
+        .collect();
+    normalized.dedup();
+    if normalized.len() >= 2 {
+        (normalized[0].clone(), normalized[1].clone())
+    } else {
+        ("USD".to_string(), "EUR".to_string())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -366,5 +384,59 @@ mod tests {
         let label = source.label();
         assert!(label.contains("default"));
         assert!(label.contains("file not found"));
+    }
+
+    // --- currency_units ---
+
+    #[test]
+    fn currency_units_picks_first_two() {
+        let mut cfg = Config::default();
+        cfg.currency.units = vec!["gbp".to_string(), "jpy".to_string()];
+        let (a, b) = currency_units(&cfg);
+        assert_eq!(a, "GBP");
+        assert_eq!(b, "JPY");
+    }
+
+    #[test]
+    fn currency_units_trims_and_uppercases() {
+        let mut cfg = Config::default();
+        cfg.currency.units = vec!["  usd  ".to_string(), " eur ".to_string()];
+        let (a, b) = currency_units(&cfg);
+        assert_eq!(a, "USD");
+        assert_eq!(b, "EUR");
+    }
+
+    #[test]
+    fn currency_units_deduplicates() {
+        // Both entries are the same after normalisation → fewer than 2 → fallback
+        let mut cfg = Config::default();
+        cfg.currency.units = vec!["USD".to_string(), "USD".to_string()];
+        let (a, b) = currency_units(&cfg);
+        assert_eq!((a.as_str(), b.as_str()), ("USD", "EUR"));
+    }
+
+    #[test]
+    fn currency_units_fewer_than_two_falls_back() {
+        let mut cfg = Config::default();
+        cfg.currency.units = vec!["CHF".to_string()];
+        let (a, b) = currency_units(&cfg);
+        assert_eq!((a.as_str(), b.as_str()), ("USD", "EUR"));
+    }
+
+    #[test]
+    fn currency_units_empty_falls_back() {
+        let mut cfg = Config::default();
+        cfg.currency.units = vec![];
+        let (a, b) = currency_units(&cfg);
+        assert_eq!((a.as_str(), b.as_str()), ("USD", "EUR"));
+    }
+
+    #[test]
+    fn currency_units_filters_blank_entries() {
+        // A blank entry is filtered out; only one real unit remains → fallback
+        let mut cfg = Config::default();
+        cfg.currency.units = vec!["USD".to_string(), "  ".to_string()];
+        let (a, b) = currency_units(&cfg);
+        assert_eq!((a.as_str(), b.as_str()), ("USD", "EUR"));
     }
 }

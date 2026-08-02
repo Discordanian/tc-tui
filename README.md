@@ -1,6 +1,6 @@
 # tc-tui
 
-Tangential Cold TUI — a terminal dashboard built with [Ratatui](https://ratatui.rs) that displays system info, weather, website health, currency conversion, and GitHub activity at a glance.
+Tangential Cold Dashboard built with [Ratatui](https://ratatui.rs) that displays system info, weather, website health, currency conversion, and GitHub activity at a glance.
 
 ## Layout
 
