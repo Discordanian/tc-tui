@@ -1,0 +1,180 @@
+import { Button, LineEdit, ScrollView, GroupBox, VerticalBox, HorizontalBox } from "std-widgets.slint";
+
+export struct UrlRow {
+    code: string,
+    code-color: color,
+    url: string,
+}
+
+export struct Bar {
+    level: float,
+    color: color,
+}
+
+export component AppWindow inherits Window {
+    title: "Tangential Cold — slint";
+    preferred-width: 1100px;
+    preferred-height: 720px;
+
+    // --- Header ---
+    in property <string> times-text;
+    in property <string> center-text;
+    in property <string> date-text;
+
+    // --- URL status ---
+    in property <[UrlRow]> url-rows;
+
+    // --- System ---
+    in property <string> cpu-count;
+    in property <string> ram-total;
+    in property <string> ram-used;
+    in property <color> ram-used-color;
+    in property <string> cpu-load;
+    in property <color> cpu-load-color;
+
+    // --- CPU history ---
+    in property <[Bar]> cpu-bars;
+
+    // --- Currency ---
+    in property <string> currency-title;
+    in-out property <string> currency-input-0;
+    in-out property <string> currency-input-1;
+    in property <string> currency-result-0;
+    in property <string> currency-result-1;
+
+    // --- Weather / GitHub ---
+    in property <[string]> weather-lines;
+    in property <string> github-title;
+    in property <string> github-emojis;
+
+    // --- Footer ---
+    in property <string> cfg-text;
+    in property <color> cfg-color;
+
+    callback refresh-clicked();
+    callback currency-edited();
+
+    VerticalBox {
+        // Header
+        HorizontalBox {
+            Text { text: root.times-text; color: #4cccd9; vertical-alignment: center; }
+            Text {
+                text: root.center-text;
+                color: #4cccd9;
+                horizontal-alignment: center;
+                horizontal-stretch: 1;
+                vertical-alignment: center;
+            }
+            Text { text: root.date-text; color: #4cccd9; vertical-alignment: center; }
+        }
+
+        // Body
+        ScrollView {
+            HorizontalBox {
+                alignment: start;
+
+                // Left column
+                VerticalBox {
+                    horizontal-stretch: 1;
+
+                    GroupBox {
+                        title: "URL Status";
+                        VerticalBox {
+                            for row in root.url-rows : HorizontalBox {
+                                Text { text: row.code; color: row.code-color; min-width: 52px; }
+                                Text { text: row.url; }
+                            }
+                        }
+                    }
+
+                    GroupBox {
+                        title: "System";
+                        VerticalBox {
+                            HorizontalBox { Text { text: "CPU Count"; min-width: 96px; } Text { text: root.cpu-count; } }
+                            HorizontalBox { Text { text: "RAM Total"; min-width: 96px; } Text { text: root.ram-total; } }
+                            HorizontalBox { Text { text: "RAM Usage"; min-width: 96px; } Text { text: root.ram-used; color: root.ram-used-color; } }
+                            HorizontalBox { Text { text: "CPU Load"; min-width: 96px; } Text { text: root.cpu-load; color: root.cpu-load-color; } }
+                        }
+                    }
+
+                    GroupBox {
+                        title: "CPU History";
+                        Rectangle {
+                            height: 48px;
+                            HorizontalLayout {
+                                alignment: start;
+                                spacing: 1px;
+                                for bar in root.cpu-bars : Rectangle {
+                                    min-width: 6px;
+                                    max-width: 6px;
+                                    Rectangle {
+                                        width: parent.width;
+                                        height: parent.height * bar.level;
+                                        y: parent.height - self.height;
+                                        background: bar.color;
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    GroupBox {
+                        title: root.currency-title;
+                        VerticalBox {
+                            HorizontalBox {
+                                LineEdit {
+                                    text <=> root.currency-input-0;
+                                    edited => { root.currency-edited(); }
+                                    min-width: 120px;
+                                }
+                                Text { text: root.currency-result-0; vertical-alignment: center; }
+                            }
+                            HorizontalBox {
+                                LineEdit {
+                                    text <=> root.currency-input-1;
+                                    edited => { root.currency-edited(); }
+                                    min-width: 120px;
+                                }
+                                Text { text: root.currency-result-1; vertical-alignment: center; }
+                            }
+                        }
+                    }
+                }
+
+                // Right column
+                VerticalBox {
+                    horizontal-stretch: 2;
+
+                    GroupBox {
+                        title: "Weather";
+                        VerticalBox {
+                            for line in root.weather-lines : Text { text: line; }
+                        }
+                    }
+
+                    GroupBox {
+                        title: root.github-title;
+                        Text { text: root.github-emojis; wrap: word-wrap; }
+                    }
+
+                    GroupBox {
+                        title: "Tangential Cold";
+                        Text {
+                            text: "Tangential Cold";
+                            color: #4cccd9;
+                            horizontal-alignment: center;
+                            font-size: 20px;
+                        }
+                    }
+                }
+            }
+        }
+
+        // Footer
+        HorizontalBox {
+            Button { text: "Refresh"; clicked => { root.refresh-clicked(); } }
+            Rectangle { horizontal-stretch: 1; }
+            Text { text: root.cfg-text; color: root.cfg-color; vertical-alignment: center; }
+        }
+    }
+}
