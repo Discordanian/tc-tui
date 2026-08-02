@@ -1,0 +1,16 @@
+[package]
+name = "tc-egui"
+version.workspace = true
+edition.workspace = true
+description = "Tangential Cold (egui/eframe frontend)"
+
+[[bin]]
+name = "tc-egui"
+path = "src/main.rs"
+
+[dependencies]
+tc-core.workspace = true
+chrono.workspace = true
+chrono-tz.workspace = true
+hostname.workspace = true
+eframe = "0.35"
