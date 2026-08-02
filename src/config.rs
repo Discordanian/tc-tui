@@ -68,6 +68,8 @@ impl Default for CurrencyConfig {
 pub struct GitHubConfig {
     #[serde(default = "default_github_username")]
     pub username: String,
+    #[serde(default)]
+    pub token: Option<String>,
 }
 
 fn default_github_username() -> String {
@@ -78,6 +80,7 @@ impl Default for GitHubConfig {
     fn default() -> Self {
         Self {
             username: default_github_username(),
+            token: None,
         }
     }
 }

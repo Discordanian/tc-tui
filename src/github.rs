@@ -28,7 +28,91 @@ impl GitHubActivity {
     }
 }
 
-fn fetch_contributions(username: &str) -> Result<Vec<(NaiveDate, u32)>, String> {
+// GraphQL response types
+#[derive(serde::Deserialize)]
+struct GraphQlResponse {
+    data: GraphQlData,
+}
+
+#[derive(serde::Deserialize)]
+struct GraphQlData {
+    user: GraphQlUser,
+}
+
+#[derive(serde::Deserialize)]
+struct GraphQlUser {
+    #[serde(rename = "contributionsCollection")]
+    contributions_collection: ContributionsCollection,
+}
+
+#[derive(serde::Deserialize)]
+struct ContributionsCollection {
+    #[serde(rename = "contributionCalendar")]
+    contribution_calendar: ContributionCalendar,
+}
+
+#[derive(serde::Deserialize)]
+struct ContributionCalendar {
+    weeks: Vec<ContributionWeek>,
+}
+
+#[derive(serde::Deserialize)]
+struct ContributionWeek {
+    #[serde(rename = "contributionDays")]
+    contribution_days: Vec<ContributionDay>,
+}
+
+#[derive(serde::Deserialize)]
+struct ContributionDay {
+    date: String,
+    #[serde(rename = "contributionCount")]
+    contribution_count: u32,
+}
+
+fn fetch_contributions_graphql(
+    username: &str,
+    token: &str,
+) -> Result<Vec<(NaiveDate, u32)>, String> {
+    let query = format!(
+        r#"{{"query":"query($login:String!){{user(login:$login){{contributionsCollection{{contributionCalendar{{weeks{{contributionDays{{date contributionCount}}}}}}}}}}}}","variables":{{"login":"{username}"}}}}"#
+    );
+
+    let mut resp = ureq::post("https://api.github.com/graphql")
+        .header("Authorization", &format!("Bearer {token}"))
+        .header("Content-Type", "application/json")
+        .header("User-Agent", "tc-tui")
+        .send(query.as_str())
+        .map_err(|e| format!("GraphQL HTTP error: {e}"))?;
+
+    let parsed: GraphQlResponse = resp
+        .body_mut()
+        .read_json()
+        .map_err(|e| format!("GraphQL parse error: {e}"))?;
+
+    let today = Utc::now().date_naive();
+    let mut result: Vec<(NaiveDate, u32)> = Vec::new();
+
+    for week in &parsed.data.user.contributions_collection.contribution_calendar.weeks {
+        for day in &week.contribution_days {
+            if let Ok(d) = NaiveDate::parse_from_str(&day.date, "%Y-%m-%d") {
+                let age = today.signed_duration_since(d).num_days();
+                if age >= 0 && age < 366 {
+                    result.push((d, day.contribution_count));
+                }
+            }
+        }
+    }
+
+    // Sort most-recent first to match the scraping output order
+    result.sort_by(|a, b| b.0.cmp(&a.0));
+    Ok(result)
+}
+
+fn fetch_contributions(username: &str, token: Option<&str>) -> Result<Vec<(NaiveDate, u32)>, String> {
+    if let Some(tok) = token {
+        return fetch_contributions_graphql(username, tok);
+    }
+
     let url = format!("https://github.com/users/{}/contributions", username);
     let mut resp = ureq::get(&url)
         .call()
@@ -124,10 +208,11 @@ pub fn spawn_github_fetcher(
     activity: Arc<Mutex<GitHubActivity>>,
     refresh_rx: mpsc::Receiver<()>,
     username: String,
+    token: Option<String>,
     interval_secs: u64,
 ) {
     thread::spawn(move || loop {
-        let result = fetch_contributions(&username);
+        let result = fetch_contributions(&username, token.as_deref());
         if let Ok(mut a) = activity.lock() {
             match result {
                 Ok(days) => {

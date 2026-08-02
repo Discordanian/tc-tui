@@ -211,6 +211,7 @@ fn main() -> io::Result<()> {
         Arc::clone(&github_activity),
         github_refresh_rx,
         cfg.github.username.clone(),
+        cfg.github.token.clone(),
         cfg.refresh.github_secs,
     );
 
