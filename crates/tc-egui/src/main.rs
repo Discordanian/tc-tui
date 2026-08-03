@@ -38,7 +38,8 @@ struct TcEgui {
 }
 
 impl TcEgui {
-    fn new(_cc: &eframe::CreationContext<'_>) -> Self {
+    fn new(cc: &eframe::CreationContext<'_>) -> Self {
+        install_emoji_font(&cc.egui_ctx);
         let (cfg, cfg_source) = tc_core::config::load();
         let mut app = App::new(cfg, cfg_source);
         app.spawn_fetchers();
@@ -47,6 +48,32 @@ impl TcEgui {
             currency_inputs: [String::from("1"), String::from("1")],
         }
     }
+}
+
+/// Register the bundled monochrome emoji font as a fallback for both the
+/// proportional and monospace families.
+///
+/// egui/epaint can't rasterize color emoji fonts, so the default fonts leave
+/// many glyphs (notably the weather symbols) blank. Adding this monochrome font
+/// at lowest priority fills those gaps without overriding the normal text fonts.
+/// The bytes live in `tc-core` so other frontends can reuse the same asset.
+fn install_emoji_font(ctx: &egui::Context) {
+    use egui::epaint::text::{FontInsert, FontPriority, InsertFontFamily};
+
+    ctx.add_font(FontInsert::new(
+        "noto-emoji",
+        egui::FontData::from_static(tc_core::assets::NOTO_EMOJI_TTF),
+        vec![
+            InsertFontFamily {
+                family: egui::FontFamily::Proportional,
+                priority: FontPriority::Lowest,
+            },
+            InsertFontFamily {
+                family: egui::FontFamily::Monospace,
+                priority: FontPriority::Lowest,
+            },
+        ],
+    ));
 }
 
 impl eframe::App for TcEgui {
