@@ -3,6 +3,7 @@ use std::time::Duration;
 use chrono::{DateTime, Utc};
 use chrono_tz::{America::Chicago, Europe::Madrid};
 use iced::widget::{button, column, container, row, scrollable, text, text_input, Space};
+use iced::widget::text::Shaping;
 use iced::{time, Alignment, Border, Color, Element, Length, Subscription, Task};
 
 use tc_core::config::ConfigSource;
@@ -25,6 +26,9 @@ const TICK_MS: u64 = 250;
 fn main() -> iced::Result {
     iced::application("Tangential Cold — iced", TcIced::update, TcIced::view)
         .subscription(TcIced::subscription)
+        // Shared monochrome emoji font from tc-core; cosmic-text uses it as a
+        // glyph fallback once Advanced shaping is enabled on a text widget.
+        .font(tc_core::assets::NOTO_EMOJI_TTF)
         .run_with(TcIced::new)
 }
 
@@ -112,9 +116,9 @@ impl TcIced {
         let center = format!("({}) {} {}", self.snapshot.ip_city, lock, hostname);
 
         row![
-            text(format!("🇪🇸 {}  │  🇺🇸 {}", spain, central)).color(CYAN),
+            emoji_text(format!("🇪🇸 {}  │  🇺🇸 {}", spain, central)).color(CYAN),
             Space::with_width(Length::Fill),
-            text(center).color(CYAN),
+            emoji_text(center).color(CYAN),
             Space::with_width(Length::Fill),
             text(day_date).color(CYAN),
         ]
@@ -202,7 +206,7 @@ impl TcIced {
         .spacing(8)
         .align_y(Alignment::Center);
 
-        panel(column![text(title).size(18.0).color(CYAN), row0, row1].spacing(6).into())
+        panel(column![emoji_text(title).size(18.0).color(CYAN), row0, row1].spacing(6).into())
     }
 
     fn weather(&self) -> Element<'_, Message> {
@@ -211,7 +215,7 @@ impl TcIced {
             col = col.push(text("No locations configured").color(GRAY));
         } else {
             for w in &self.snapshot.weather {
-                col = col.push(text(format!(
+                col = col.push(emoji_text(format!(
                     "{:<12} {:.1}°F ({:.1}°C)   H:{:.1}°F  L:{:.1}°F   {} {}",
                     w.city, w.current_f, w.current_c, w.high_f, w.low_f, w.emoji, w.description,
                 )));
@@ -236,7 +240,7 @@ impl TcIced {
                 text(format!("GitHub ({})", self.snapshot.github.status))
                     .size(18.0)
                     .color(CYAN),
-                text(body),
+                emoji_text(body),
             ]
             .spacing(4)
             .into(),
@@ -271,6 +275,18 @@ fn welcome() -> Element<'static, Message> {
 
 fn panel_title(title: &str) -> Element<'_, Message> {
     text(title.to_string()).size(18.0).color(CYAN).into()
+}
+
+/// Text that may contain emoji / complex Unicode.
+///
+/// iced defaults to `Shaping::Basic`, which skips font fallback — so missing
+/// glyphs stay blank even when an emoji font is loaded. Advanced shaping lets
+/// cosmic-text pull glyphs from the bundled Noto Emoji (and any system emoji
+/// fonts) when the primary font doesn't have them.
+fn emoji_text<'a>(
+    content: impl text::IntoFragment<'a>,
+) -> text::Text<'a, iced::Theme, iced::Renderer> {
+    text(content).shaping(Shaping::Advanced)
 }
 
 fn labeled<'a>(label: &'a str, value: Element<'a, Message>) -> Element<'a, Message> {
