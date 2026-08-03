@@ -207,7 +207,7 @@ fn right_column(ui: &mut egui::Ui, snap: &Snapshot) {
         let avail = ui.available_width();
         let space_w = ui.ctx().fonts_mut(|f| f.glyph_width(&font, ' '));
 
-        let mut kept: Vec<&str> = Vec::new();
+        let mut kept: Vec<(&str, Color32)> = Vec::new();
         let mut used = 0.0;
         for (_, count) in &snap.github.days {
             let emoji = GitHubActivity::emoji_for_count(*count);
@@ -219,11 +219,21 @@ fn right_column(ui: &mut egui::Ui, snap: &Snapshot) {
                 break;
             }
             used += add;
-            kept.push(emoji);
+            kept.push((emoji, github_color(*count)));
         }
 
-        let text = if kept.is_empty() { "...".to_string() } else { kept.join(" ") };
-        ui.label(text);
+        if kept.is_empty() {
+            ui.label("...");
+            return;
+        }
+        // Tint each (monochrome) glyph by its activity level. `horizontal` keeps
+        // everything on one line (no wrapping); the loop above already ensured fit.
+        ui.horizontal(|ui| {
+            ui.spacing_mut().item_spacing.x = space_w;
+            for (emoji, color) in kept {
+                ui.colored_label(color, emoji);
+            }
+        });
     });
 
     panel(ui, "Tangential Cold", |ui| {
@@ -276,6 +286,17 @@ fn status_color(code: &str) -> Color32 {
         c if c.starts_with('4') || c.starts_with('5') => RED,
         "..." => GRAY,
         _ => RED,
+    }
+}
+
+/// Tint for a GitHub day's activity level, matching `emoji_for_count`'s tiers:
+/// none (❌) red, light (✅) green, busy (🌟) yellow, heavy (🚀) cyan.
+fn github_color(count: u32) -> Color32 {
+    match count {
+        0 => RED,
+        1..=3 => GREEN,
+        4..=6 => YELLOW,
+        _ => CYAN,
     }
 }
 
