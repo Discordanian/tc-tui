@@ -151,12 +151,21 @@ export component AppWindow inherits Window {
 
                     GroupBox {
                         title: "Weather";
+                        // Match URL Status row structure. Weather strings include
+                        // emoji, whose font metrics inflate Text preferred-height
+                        // and look double-spaced unless the line box is capped.
                         VerticalBox {
-                            spacing: 0px;
+                            spacing: 2px;
                             padding: 0px;
-                            for line in root.weather-lines : Text {
-                                text: line;
-                                vertical-stretch: 0;
+                            for line in root.weather-lines : HorizontalBox {
+                                spacing: 0px;
+                                padding: 0px;
+                                Text {
+                                    text: line;
+                                    vertical-stretch: 0;
+                                    height: 18px;
+                                    vertical-alignment: center;
+                                }
                             }
                         }
                     }
