@@ -14,7 +14,7 @@ tc-core.workspace = true
 chrono.workspace = true
 chrono-tz.workspace = true
 hostname.workspace = true
-slint = "1.17"
+slint = { version = "~1.17", features = ["unstable-fontique-010"] }
 
 [build-dependencies]
 slint-build = "1.17"

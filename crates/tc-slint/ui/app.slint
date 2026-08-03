@@ -6,6 +6,12 @@ export struct UrlRow {
     url: string,
 }
 
+export struct WeatherRow {
+    summary: string,
+    emoji: string,
+    description: string,
+}
+
 export struct Bar {
     level: float,
     color: color,
@@ -43,7 +49,7 @@ export component AppWindow inherits Window {
     in property <string> currency-result-1;
 
     // --- Weather / GitHub ---
-    in property <[string]> weather-lines;
+    in property <[WeatherRow]> weather-rows;
     in property <string> github-title;
     in property <string> github-emojis;
 
@@ -151,20 +157,32 @@ export component AppWindow inherits Window {
 
                     GroupBox {
                         title: "Weather";
-                        // Match URL Status row structure. Weather strings include
-                        // emoji, whose font metrics inflate Text preferred-height
-                        // and look double-spaced unless the line box is capped.
+                        // Keep Latin text on the default font; emoji goes in its own
+                        // Text with font-family "Noto Emoji" (registered from tc-core).
+                        // Mixing both in one Text blanked the line after the emoji
+                        // family was pointed at a Latin-less font.
                         VerticalBox {
                             spacing: 2px;
                             padding: 0px;
-                            for line in root.weather-lines : HorizontalBox {
-                                spacing: 0px;
+                            for row in root.weather-rows : HorizontalBox {
+                                spacing: 8px;
                                 padding: 0px;
+                                alignment: start;
                                 Text {
-                                    text: line;
+                                    text: row.summary;
                                     vertical-stretch: 0;
-                                    height: 18px;
-                                    vertical-alignment: center;
+                                    horizontal-stretch: 0;
+                                }
+                                if row.emoji != "" : Text {
+                                    text: row.emoji;
+                                    font-family: "Noto Emoji";
+                                    vertical-stretch: 0;
+                                    horizontal-stretch: 0;
+                                }
+                                if row.description != "" : Text {
+                                    text: row.description;
+                                    vertical-stretch: 0;
+                                    horizontal-stretch: 0;
                                 }
                             }
                         }
@@ -172,7 +190,11 @@ export component AppWindow inherits Window {
 
                     GroupBox {
                         title: root.github-title;
-                        Text { text: root.github-emojis; wrap: word-wrap; }
+                        Text {
+                            text: root.github-emojis;
+                            font-family: "Noto Emoji";
+                            wrap: no-wrap;
+                        }
                     }
 
                     GroupBox {

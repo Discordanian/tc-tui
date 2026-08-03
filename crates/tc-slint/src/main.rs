@@ -24,6 +24,8 @@ fn main() -> Result<(), slint::PlatformError> {
     let app = Rc::new(app);
 
     let ui = AppWindow::new()?;
+    // Must run after the Slint platform is up (`AppWindow::new`).
+    install_emoji_font();
     ui.set_currency_input_0("1".into());
     ui.set_currency_input_1("1".into());
 
@@ -133,22 +135,29 @@ fn update_ui(ui: &AppWindow, snap: &Snapshot, cfg_source: &ConfigSource) {
         format!("{} → {}", ba.base, render_currency_value(c1, &ba.quote)).into(),
     );
 
-    // Weather
-    let weather_lines: Vec<SharedString> = if snap.weather.is_empty() {
-        vec!["No locations configured".into()]
+    // Weather — keep emoji on a separate run so Latin isn't shaped with the
+    // emoji-only Noto font (that combination rendered as a blank line).
+    let weather_rows: Vec<WeatherRow> = if snap.weather.is_empty() {
+        vec![WeatherRow {
+            summary: "No locations configured".into(),
+            emoji: SharedString::default(),
+            description: SharedString::default(),
+        }]
     } else {
         snap.weather
             .iter()
-            .map(|w| {
-                format!(
-                    "{:<12} {:.1}°F ({:.1}°C)   H:{:.1}°F  L:{:.1}°F   {} {}",
-                    w.city, w.current_f, w.current_c, w.high_f, w.low_f, w.emoji, w.description,
+            .map(|w| WeatherRow {
+                summary: format!(
+                    "{:<12} {:.1}°F ({:.1}°C)   H:{:.1}°F  L:{:.1}°F",
+                    w.city, w.current_f, w.current_c, w.high_f, w.low_f,
                 )
-                .into()
+                .into(),
+                emoji: w.emoji.as_str().into(),
+                description: w.description.as_str().into(),
             })
             .collect()
     };
-    ui.set_weather_lines(ModelRc::from(weather_lines.as_slice()));
+    ui.set_weather_rows(ModelRc::from(weather_rows.as_slice()));
 
     // GitHub
     ui.set_github_title(format!("GitHub ({})", snap.github.status).into());
@@ -179,6 +188,21 @@ const GREEN: Color = Color::from_rgb_u8(76, 204, 89);
 const YELLOW: Color = Color::from_rgb_u8(230, 204, 64);
 const RED: Color = Color::from_rgb_u8(230, 76, 76);
 const GRAY: Color = Color::from_rgb_u8(140, 140, 140);
+
+/// Register the shared monochrome Noto Emoji font under its family name.
+///
+/// Same asset as egui/iced (`tc_core::assets::NOTO_EMOJI_TTF`). We only register
+/// the family here — widgets that need emoji set `font-family: "Noto Emoji"`.
+/// Do **not** replace `GenericFamily::Emoji` with this Latin-less font: Slint can
+/// then shape whole mixed strings with it and Latin text disappears (blank weather).
+fn install_emoji_font() {
+    use slint::fontique_010::fontique;
+    use std::sync::Arc;
+
+    let blob = fontique::Blob::new(Arc::new(tc_core::assets::NOTO_EMOJI_TTF.to_vec()));
+    let mut collection = slint::fontique_010::shared_collection();
+    let _fonts = collection.register_fonts(blob, None);
+}
 
 fn status_color(code: &str) -> Color {
     match code {
