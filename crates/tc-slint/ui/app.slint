@@ -88,11 +88,13 @@ export component AppWindow inherits Window {
                         VerticalBox {
                             spacing: 2px;
                             padding: 0px;
+                            alignment: start;
                             for row in root.url-rows : HorizontalBox {
                                 spacing: 8px;
                                 padding: 0px;
-                                Text { text: row.code; color: row.code-color; min-width: 52px; }
-                                Text { text: row.url; }
+                                vertical-stretch: 0;
+                                Text { text: row.code; color: row.code-color; min-width: 52px; horizontal-stretch: 0; }
+                                Text { text: row.url; horizontal-stretch: 0; }
                             }
                         }
                     }
@@ -100,10 +102,37 @@ export component AppWindow inherits Window {
                     GroupBox {
                         title: "System";
                         VerticalBox {
-                            HorizontalBox { Text { text: "CPU Count"; min-width: 96px; } Text { text: root.cpu-count; } }
-                            HorizontalBox { Text { text: "RAM Total"; min-width: 96px; } Text { text: root.ram-total; } }
-                            HorizontalBox { Text { text: "RAM Usage"; min-width: 96px; } Text { text: root.ram-used; color: root.ram-used-color; } }
-                            HorizontalBox { Text { text: "CPU Load"; min-width: 96px; } Text { text: root.cpu-load; color: root.cpu-load-color; } }
+                            spacing: 2px;
+                            padding: 0px;
+                            alignment: start;
+                            HorizontalBox {
+                                spacing: 8px;
+                                padding: 0px;
+                                vertical-stretch: 0;
+                                Text { text: "CPU Count"; min-width: 96px; horizontal-stretch: 0; }
+                                Text { text: root.cpu-count; horizontal-stretch: 0; }
+                            }
+                            HorizontalBox {
+                                spacing: 8px;
+                                padding: 0px;
+                                vertical-stretch: 0;
+                                Text { text: "RAM Total"; min-width: 96px; horizontal-stretch: 0; }
+                                Text { text: root.ram-total; horizontal-stretch: 0; }
+                            }
+                            HorizontalBox {
+                                spacing: 8px;
+                                padding: 0px;
+                                vertical-stretch: 0;
+                                Text { text: "RAM Usage"; min-width: 96px; horizontal-stretch: 0; }
+                                Text { text: root.ram-used; color: root.ram-used-color; horizontal-stretch: 0; }
+                            }
+                            HorizontalBox {
+                                spacing: 8px;
+                                padding: 0px;
+                                vertical-stretch: 0;
+                                Text { text: "CPU Load"; min-width: 96px; horizontal-stretch: 0; }
+                                Text { text: root.cpu-load; color: root.cpu-load-color; horizontal-stretch: 0; }
+                            }
                         }
                     }
 
@@ -164,10 +193,12 @@ export component AppWindow inherits Window {
                         VerticalBox {
                             spacing: 2px;
                             padding: 0px;
+                            alignment: start;
                             for row in root.weather-rows : HorizontalBox {
                                 spacing: 8px;
                                 padding: 0px;
                                 alignment: start;
+                                vertical-stretch: 0;
                                 Text {
                                     text: row.summary;
                                     vertical-stretch: 0;
@@ -176,6 +207,10 @@ export component AppWindow inherits Window {
                                 if row.emoji != "" : Text {
                                     text: row.emoji;
                                     font-family: "Noto Emoji";
+                                    // Cap emoji line-box so Noto metrics don't insert
+                                    // a blank-looking gap between weather rows.
+                                    height: 16px;
+                                    vertical-alignment: center;
                                     vertical-stretch: 0;
                                     horizontal-stretch: 0;
                                 }
