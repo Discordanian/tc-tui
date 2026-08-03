@@ -4,7 +4,7 @@ use chrono::{DateTime, Utc};
 use chrono_tz::{America::Chicago, Europe::Madrid};
 use iced::widget::{button, column, container, row, scrollable, text, text_input, Space};
 use iced::widget::text::Shaping;
-use iced::{time, Alignment, Border, Color, Element, Length, Subscription, Task};
+use iced::{time, window, Alignment, Border, Color, Element, Font, Length, Size, Subscription, Task};
 
 use tc_core::config::ConfigSource;
 use tc_core::format::{
@@ -36,6 +36,9 @@ struct TcIced {
     app: App,
     snapshot: Snapshot,
     currency_inputs: [String; 2],
+    /// Latest window size; used to fit the GitHub row without `responsive`
+    /// (which fills height and panics inside a vertical `scrollable`).
+    window_size: Size,
 }
 
 #[derive(Debug, Clone)]
@@ -43,6 +46,7 @@ enum Message {
     Tick,
     Refresh,
     CurrencyInput(usize, String),
+    WindowResized(Size),
 }
 
 impl TcIced {
@@ -56,6 +60,7 @@ impl TcIced {
                 app,
                 snapshot,
                 currency_inputs: [String::from("1"), String::from("1")],
+                window_size: Size::new(1024.0, 768.0),
             },
             Task::none(),
         )
@@ -71,12 +76,16 @@ impl TcIced {
                         value.chars().filter(|c| c.is_ascii_digit() || *c == '.').collect();
                 }
             }
+            Message::WindowResized(size) => self.window_size = size,
         }
         Task::none()
     }
 
     fn subscription(&self) -> Subscription<Message> {
-        time::every(Duration::from_millis(TICK_MS)).map(|_| Message::Tick)
+        Subscription::batch([
+            time::every(Duration::from_millis(TICK_MS)).map(|_| Message::Tick),
+            window::resize_events().map(|(_, size)| Message::WindowResized(size)),
+        ])
     }
 
     fn view(&self) -> Element<'_, Message> {
@@ -215,32 +224,31 @@ impl TcIced {
             col = col.push(text("No locations configured").color(GRAY));
         } else {
             for w in &self.snapshot.weather {
-                col = col.push(emoji_text(format!(
-                    "{:<12} {:.1}°F ({:.1}°C)   H:{:.1}°F  L:{:.1}°F   {} {}",
-                    w.city, w.current_f, w.current_c, w.high_f, w.low_f, w.emoji, w.description,
-                )));
+                col = col.push(
+                    emoji_text(format!(
+                        "{:<12} {:.1}°F ({:.1}°C)   H:{:.1}°F  L:{:.1}°F   {} {}",
+                        w.city, w.current_f, w.current_c, w.high_f, w.low_f, w.emoji, w.description,
+                    ))
+                    .font(Font::MONOSPACE),
+                );
             }
         }
         panel(col.into())
     }
 
     fn github(&self) -> Element<'_, Message> {
-        let emojis: String = self
-            .snapshot
-            .github
-            .days
-            .iter()
-            .take(60)
-            .map(|(_, count)| GitHubActivity::emoji_for_count(*count))
-            .collect::<Vec<&str>>()
-            .join(" ");
-        let body = if emojis.is_empty() { "...".to_string() } else { emojis };
+        // Mirror the view layout: body padding 10, row spacing 10, right column
+        // is 2/3 of the row, panel padding 10.
+        let content_w = (self.window_size.width - 20.0).max(0.0);
+        let right_w = ((content_w - 10.0) * 2.0 / 3.0).max(0.0);
+        let avail = (right_w - 20.0).max(0.0);
+
         panel(
             column![
                 text(format!("GitHub ({})", self.snapshot.github.status))
                     .size(18.0)
                     .color(CYAN),
-                emoji_text(body),
+                github_emojis(&self.snapshot.github.days, avail),
             ]
             .spacing(4)
             .into(),
@@ -289,6 +297,35 @@ fn emoji_text<'a>(
     text(content).shaping(Shaping::Advanced)
 }
 
+/// Build the GitHub activity row: newest-first, tinted per level, truncated so
+/// only legacy (oldest) days are dropped when width is tight.
+fn github_emojis(days: &[(chrono::NaiveDate, u32)], avail: f32) -> Element<'_, Message> {
+    // Approximate glyph+gap width; slightly conservative so we never wrap.
+    const EMOJI_W: f32 = 22.0;
+    const GAP: f32 = 4.0;
+
+    let mut kept: Vec<(u32, &str)> = Vec::new();
+    let mut used = 0.0;
+    for (_, count) in days {
+        let add = if kept.is_empty() { EMOJI_W } else { EMOJI_W + GAP };
+        if !kept.is_empty() && used + add > avail {
+            break;
+        }
+        used += add;
+        kept.push((*count, GitHubActivity::emoji_for_count(*count)));
+    }
+
+    if kept.is_empty() {
+        return text("...").into();
+    }
+
+    let mut r = row![].spacing(GAP);
+    for (count, emoji) in kept {
+        r = r.push(emoji_text(emoji).color(github_color(count)));
+    }
+    r.into()
+}
+
 fn labeled<'a>(label: &'a str, value: Element<'a, Message>) -> Element<'a, Message> {
     row![text(label.to_string()).width(Length::Fixed(120.0)), value]
         .spacing(8)
@@ -317,6 +354,17 @@ fn status_color(code: &str) -> Color {
         c if c.starts_with('4') || c.starts_with('5') => RED,
         "..." => GRAY,
         _ => RED,
+    }
+}
+
+/// Tint for a GitHub day's activity level, matching `emoji_for_count`'s tiers:
+/// none (❌) red, light (✅) green, busy (🌟) yellow, heavy (🚀) cyan.
+fn github_color(count: u32) -> Color {
+    match count {
+        0 => RED,
+        1..=3 => GREEN,
+        4..=6 => YELLOW,
+        _ => CYAN,
     }
 }
 
