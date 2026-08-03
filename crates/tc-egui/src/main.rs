@@ -174,15 +174,29 @@ fn right_column(ui: &mut egui::Ui, snap: &Snapshot) {
     });
 
     panel(ui, &format!("GitHub ({})", snap.github.status), |ui| {
-        let emojis: String = snap
-            .github
-            .days
-            .iter()
-            .take(60)
-            .map(|(_, count)| GitHubActivity::emoji_for_count(*count))
-            .collect::<Vec<&str>>()
-            .join(" ");
-        ui.label(if emojis.is_empty() { "...".to_string() } else { emojis });
+        // Days are newest-first; keep the most recent that fit on one line and
+        // drop only the legacy (oldest) days, so the latest stay fully visible.
+        let font = egui::TextStyle::Body.resolve(ui.style());
+        let avail = ui.available_width();
+        let space_w = ui.ctx().fonts_mut(|f| f.glyph_width(&font, ' '));
+
+        let mut kept: Vec<&str> = Vec::new();
+        let mut used = 0.0;
+        for (_, count) in &snap.github.days {
+            let emoji = GitHubActivity::emoji_for_count(*count);
+            let w = ui
+                .ctx()
+                .fonts_mut(|f| f.layout_no_wrap(emoji.to_string(), font.clone(), Color32::WHITE).size().x);
+            let add = if kept.is_empty() { w } else { w + space_w };
+            if !kept.is_empty() && used + add > avail {
+                break;
+            }
+            used += add;
+            kept.push(emoji);
+        }
+
+        let text = if kept.is_empty() { "...".to_string() } else { kept.join(" ") };
+        ui.label(text);
     });
 
     panel(ui, "Tangential Cold", |ui| {
