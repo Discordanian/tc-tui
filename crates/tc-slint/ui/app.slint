@@ -80,7 +80,11 @@ export component AppWindow inherits Window {
                     GroupBox {
                         title: "URL Status";
                         VerticalBox {
+                            spacing: 2px;
+                            padding: 0px;
                             for row in root.url-rows : HorizontalBox {
+                                spacing: 8px;
+                                padding: 0px;
                                 Text { text: row.code; color: row.code-color; min-width: 52px; }
                                 Text { text: row.url; }
                             }
@@ -148,7 +152,12 @@ export component AppWindow inherits Window {
                     GroupBox {
                         title: "Weather";
                         VerticalBox {
-                            for line in root.weather-lines : Text { text: line; }
+                            spacing: 0px;
+                            padding: 0px;
+                            for line in root.weather-lines : Text {
+                                text: line;
+                                vertical-stretch: 0;
+                            }
                         }
                     }
 
