@@ -143,18 +143,7 @@ impl TcEgui {
         });
 
         panel(ui, "CPU History", |ui| {
-            ui.horizontal(|ui| {
-                ui.spacing_mut().item_spacing.x = 1.0;
-                if snap.cpu_history.is_empty() {
-                    ui.colored_label(GRAY, "collecting…");
-                }
-                for &load in &snap.cpu_history {
-                    ui.colored_label(
-                        level_color(load, 33.3, 66.6),
-                        RichText::new(spark_char(load).to_string()).monospace().size(18.0),
-                    );
-                }
-            });
+            cpu_wave(ui, &snap.cpu_history);
         });
 
         let (ab, ba) = snap.currency_rates.clone();
@@ -260,10 +249,115 @@ fn level_color(value: f32, warn: f32, danger: f32) -> Color32 {
     }
 }
 
-fn spark_char(load: f32) -> char {
-    const BARS: [char; 8] = ['▁', '▂', '▃', '▄', '▅', '▆', '▇', '█'];
-    let idx = ((load / 100.0) * (BARS.len() as f32 - 1.0))
-        .round()
-        .clamp(0.0, (BARS.len() - 1) as f32) as usize;
-    BARS[idx]
+/// Height of the CPU-history wave, in points.
+const WAVE_HEIGHT: f32 = 48.0;
+/// Smoothing factor for the exponential moving average (0 = very smooth, 1 = raw).
+const WAVE_EMA_ALPHA: f32 = 0.4;
+/// Catmull-Rom subdivisions per sample gap (higher = smoother curve).
+const WAVE_SUBDIVISIONS: usize = 8;
+
+/// Draw the CPU-load history as a smoothed, filled wave.
+///
+/// The samples are softened with an exponential moving average, interpolated
+/// with a Catmull-Rom spline for a flowing curve, then rendered as a translucent
+/// filled area with the line on top. The color follows the latest load
+/// (green/yellow/red).
+fn cpu_wave(ui: &mut egui::Ui, history: &[f32]) {
+    let (rect, _resp) =
+        ui.allocate_exact_size(egui::vec2(ui.available_width(), WAVE_HEIGHT), egui::Sense::hover());
+    let painter = ui.painter_at(rect);
+
+    // Faint baseline along the bottom.
+    painter.line_segment(
+        [rect.left_bottom(), rect.right_bottom()],
+        egui::Stroke::new(1.0, Color32::from_gray(70)),
+    );
+
+    if history.len() < 2 {
+        painter.text(
+            rect.center(),
+            egui::Align2::CENTER_CENTER,
+            "collecting…",
+            egui::FontId::proportional(12.0),
+            GRAY,
+        );
+        return;
+    }
+
+    let smoothed = ema(history, WAVE_EMA_ALPHA);
+    let curve = catmull_rom(&smoothed, WAVE_SUBDIVISIONS);
+
+    let to_pos = |x_frac: f32, val: f32| {
+        egui::pos2(
+            rect.left() + rect.width() * x_frac,
+            rect.bottom() - rect.height() * (val / 100.0).clamp(0.0, 1.0),
+        )
+    };
+    let line: Vec<egui::Pos2> = curve.iter().map(|&(x, v)| to_pos(x, v)).collect();
+
+    let color = level_color(*history.last().unwrap(), 33.3, 66.6);
+    let fill = Color32::from_rgba_unmultiplied(color.r(), color.g(), color.b(), 48);
+
+    // Fill the area under the curve as a triangle strip down to the baseline.
+    // Built by hand (rather than a closed PathShape) so concave curves fill cleanly.
+    let mut mesh = egui::Mesh::default();
+    for seg in line.windows(2) {
+        let (p0, p1) = (seg[0], seg[1]);
+        let base = mesh.vertices.len() as u32;
+        for p in [p0, p1, egui::pos2(p1.x, rect.bottom()), egui::pos2(p0.x, rect.bottom())] {
+            mesh.colored_vertex(p, fill);
+        }
+        mesh.add_triangle(base, base + 1, base + 2);
+        mesh.add_triangle(base, base + 2, base + 3);
+    }
+    painter.add(egui::Shape::mesh(mesh));
+
+    painter.add(egui::Shape::line(line, egui::Stroke::new(1.5, color)));
+}
+
+/// Exponential moving average, softening spikes before plotting.
+fn ema(data: &[f32], alpha: f32) -> Vec<f32> {
+    let mut out = Vec::with_capacity(data.len());
+    let mut prev = data.first().copied().unwrap_or(0.0);
+    for &v in data {
+        prev = alpha * v + (1.0 - alpha) * prev;
+        out.push(prev);
+    }
+    out
+}
+
+/// Catmull-Rom spline through equally-spaced sample values.
+///
+/// Returns `(x_fraction, value)` points, where `x_fraction` spans `0.0..=1.0`
+/// across the samples, subdividing each gap for a smooth curve.
+fn catmull_rom(values: &[f32], subdivisions: usize) -> Vec<(f32, f32)> {
+    let n = values.len();
+    if n < 2 {
+        return values.iter().map(|&v| (0.0, v)).collect();
+    }
+    let denom = (n - 1) as f32;
+    let at = |i: isize| values[i.clamp(0, n as isize - 1) as usize];
+
+    let mut out = Vec::with_capacity((n - 1) * subdivisions + 1);
+    for i in 0..(n - 1) {
+        let (p0, p1, p2, p3) = (
+            at(i as isize - 1),
+            at(i as isize),
+            at(i as isize + 1),
+            at(i as isize + 2),
+        );
+        for s in 0..subdivisions {
+            let t = s as f32 / subdivisions as f32;
+            let t2 = t * t;
+            let t3 = t2 * t;
+            let v = 0.5
+                * (2.0 * p1
+                    + (-p0 + p2) * t
+                    + (2.0 * p0 - 5.0 * p1 + 4.0 * p2 - p3) * t2
+                    + (-p0 + 3.0 * p1 - 3.0 * p2 + p3) * t3);
+            out.push(((i as f32 + t) / denom, v));
+        }
+    }
+    out.push((1.0, values[n - 1]));
+    out
 }
