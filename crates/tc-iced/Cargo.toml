@@ -13,4 +13,4 @@ tc-core.workspace = true
 chrono.workspace = true
 chrono-tz.workspace = true
 hostname.workspace = true
-iced = { version = "0.13", features = ["tokio"] }
+iced = { version = "0.13", features = ["tokio", "canvas"] }

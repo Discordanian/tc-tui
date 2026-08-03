@@ -2,9 +2,14 @@ use std::time::Duration;
 
 use chrono::{DateTime, Utc};
 use chrono_tz::{America::Chicago, Europe::Madrid};
+use iced::mouse;
+use iced::widget::canvas::{self, Canvas, Frame, Geometry, Path, Stroke};
 use iced::widget::{button, column, container, row, scrollable, text, text_input, Space};
 use iced::widget::text::Shaping;
-use iced::{time, window, Alignment, Border, Color, Element, Font, Length, Size, Subscription, Task};
+use iced::{
+    time, window, Alignment, Border, Color, Element, Font, Length, Point, Rectangle, Renderer,
+    Size, Subscription, Task, Theme,
+};
 
 use tc_core::config::ConfigSource;
 use tc_core::format::{
@@ -175,15 +180,13 @@ impl TcIced {
     }
 
     fn cpu_history(&self) -> Element<'_, Message> {
-        let mut bars = row![].spacing(1);
-        for &load in &self.snapshot.cpu_history {
-            bars = bars.push(
-                text(spark_char(load).to_string())
-                    .color(level_color(load, 33.3, 66.6))
-                    .size(18.0),
-            );
-        }
-        panel(column![panel_title("CPU History"), bars].spacing(4).into())
+        let wave = Canvas::new(CpuWave {
+            history: self.snapshot.cpu_history.clone(),
+        })
+        .width(Length::Fill)
+        .height(WAVE_HEIGHT);
+
+        panel(column![panel_title("CPU History"), wave].spacing(4).into())
     }
 
     fn currency(&self) -> Element<'_, Message> {
@@ -379,10 +382,150 @@ fn level_color(value: f32, warn: f32, danger: f32) -> Color {
     }
 }
 
-fn spark_char(load: f32) -> char {
-    const BARS: [char; 8] = ['▁', '▂', '▃', '▄', '▅', '▆', '▇', '█'];
-    let idx = ((load / 100.0) * (BARS.len() as f32 - 1.0))
-        .round()
-        .clamp(0.0, (BARS.len() - 1) as f32) as usize;
-    BARS[idx]
+/// Height of the CPU-history wave, in points.
+const WAVE_HEIGHT: f32 = 48.0;
+/// Smoothing factor for the exponential moving average (0 = very smooth, 1 = raw).
+const WAVE_EMA_ALPHA: f32 = 0.4;
+/// Catmull-Rom subdivisions per sample gap (higher = smoother curve).
+const WAVE_SUBDIVISIONS: usize = 8;
+
+/// Canvas program that draws the CPU-load history as a smoothed, filled wave.
+struct CpuWave {
+    history: Vec<f32>,
+}
+
+impl<Message> canvas::Program<Message> for CpuWave {
+    type State = ();
+
+    fn draw(
+        &self,
+        _state: &Self::State,
+        renderer: &Renderer,
+        _theme: &Theme,
+        bounds: Rectangle,
+        _cursor: mouse::Cursor,
+    ) -> Vec<Geometry> {
+        let mut frame = Frame::new(renderer, bounds.size());
+        let w = bounds.width;
+        let h = bounds.height;
+
+        // Faint baseline along the bottom.
+        let baseline = Path::line(Point::new(0.0, h), Point::new(w, h));
+        frame.stroke(
+            &baseline,
+            Stroke::default()
+                .with_width(1.0)
+                .with_color(Color {
+                    r: 0.27,
+                    g: 0.27,
+                    b: 0.27,
+                    a: 1.0,
+                }),
+        );
+
+        if self.history.len() < 2 {
+            frame.fill_text(canvas::Text {
+                content: "collecting…".into(),
+                position: Point::new(w / 2.0, h / 2.0),
+                color: GRAY,
+                size: 12.0.into(),
+                horizontal_alignment: iced::alignment::Horizontal::Center,
+                vertical_alignment: iced::alignment::Vertical::Center,
+                ..canvas::Text::default()
+            });
+            return vec![frame.into_geometry()];
+        }
+
+        let smoothed = ema(&self.history, WAVE_EMA_ALPHA);
+        let curve = catmull_rom(&smoothed, WAVE_SUBDIVISIONS);
+        let points: Vec<Point> = curve
+            .iter()
+            .map(|&(x_frac, val)| {
+                Point::new(
+                    w * x_frac,
+                    h - h * (val / 100.0).clamp(0.0, 1.0),
+                )
+            })
+            .collect();
+
+        let color = level_color(*self.history.last().unwrap(), 33.3, 66.6);
+        let fill_color = Color {
+            a: 48.0 / 255.0,
+            ..color
+        };
+
+        // Closed path: curve left→right, then down the baseline back to the start.
+        // x is monotonic, so a simple fill works (no need for a triangle strip).
+        let area = Path::new(|b| {
+            b.move_to(points[0]);
+            for p in &points[1..] {
+                b.line_to(*p);
+            }
+            let last = *points.last().unwrap();
+            b.line_to(Point::new(last.x, h));
+            b.line_to(Point::new(points[0].x, h));
+            b.close();
+        });
+        frame.fill(&area, fill_color);
+
+        let line = Path::new(|b| {
+            b.move_to(points[0]);
+            for p in &points[1..] {
+                b.line_to(*p);
+            }
+        });
+        frame.stroke(
+            &line,
+            Stroke::default().with_width(1.5).with_color(color),
+        );
+
+        vec![frame.into_geometry()]
+    }
+}
+
+/// Exponential moving average, softening spikes before plotting.
+fn ema(data: &[f32], alpha: f32) -> Vec<f32> {
+    let mut out = Vec::with_capacity(data.len());
+    let mut prev = data.first().copied().unwrap_or(0.0);
+    for &v in data {
+        prev = alpha * v + (1.0 - alpha) * prev;
+        out.push(prev);
+    }
+    out
+}
+
+/// Catmull-Rom spline through equally-spaced sample values.
+///
+/// Returns `(x_fraction, value)` points, where `x_fraction` spans `0.0..=1.0`
+/// across the samples, subdividing each gap for a smooth curve.
+fn catmull_rom(values: &[f32], subdivisions: usize) -> Vec<(f32, f32)> {
+    let n = values.len();
+    if n < 2 {
+        return values.iter().map(|&v| (0.0, v)).collect();
+    }
+    let denom = (n - 1) as f32;
+    let at = |i: isize| values[i.clamp(0, n as isize - 1) as usize];
+
+    let mut out = Vec::with_capacity((n - 1) * subdivisions + 1);
+    for i in 0..(n - 1) {
+        let (p0, p1, p2, p3) = (
+            at(i as isize - 1),
+            at(i as isize),
+            at(i as isize + 1),
+            at(i as isize + 2),
+        );
+        for s in 0..subdivisions {
+            let t = s as f32 / subdivisions as f32;
+            let t2 = t * t;
+            let t3 = t2 * t;
+            let v = 0.5
+                * (2.0 * p1
+                    + (-p0 + p2) * t
+                    + (2.0 * p0 - 5.0 * p1 + 4.0 * p2 - p3) * t2
+                    + (-p0 + 3.0 * p1 - 3.0 * p2 + p3) * t3);
+            out.push(((i as f32 + t) / denom, v));
+        }
+    }
+    out.push((1.0, values[n - 1]));
+    out
 }
