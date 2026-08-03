@@ -13,4 +13,16 @@ tc-core.workspace = true
 chrono.workspace = true
 chrono-tz.workspace = true
 hostname.workspace = true
-eframe = "0.35"
+# `accesskit` (an eframe default feature) throws an uncaught NSException when the
+# window closes on macOS, so we opt out of it and re-enable the rest of eframe's
+# default set manually.
+eframe = { version = "0.35", default-features = false, features = [
+    "default_fonts",
+    "wgpu",
+    "wayland",
+    "x11",
+] }
+# eframe's default set also enabled `winit/default`; disabling eframe defaults
+# drops it, so depend on winit directly to keep its defaults (notably `rwh_06`,
+# required by wgpu for surface creation).
+winit = "0.30"
