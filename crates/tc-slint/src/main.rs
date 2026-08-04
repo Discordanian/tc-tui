@@ -135,11 +135,12 @@ fn update_ui(ui: &AppWindow, snap: &Snapshot, cfg_source: &ConfigSource) {
         format!("{} → {}", ba.base, render_currency_value(c1, &ba.quote)).into(),
     );
 
-    // Weather — keep emoji on a separate run so Latin isn't shaped with the
-    // emoji-only Noto font (that combination rendered as a blank line).
+    // Weather — fixed columns in the UI; emoji on its own Text/font.
     let weather_rows: Vec<WeatherRow> = if snap.weather.is_empty() {
         vec![WeatherRow {
-            summary: "No locations configured".into(),
+            city: "No locations configured".into(),
+            current: SharedString::default(),
+            range: SharedString::default(),
             emoji: SharedString::default(),
             description: SharedString::default(),
         }]
@@ -147,11 +148,9 @@ fn update_ui(ui: &AppWindow, snap: &Snapshot, cfg_source: &ConfigSource) {
         snap.weather
             .iter()
             .map(|w| WeatherRow {
-                summary: format!(
-                    "{:<12} {:.1}°F ({:.1}°C)   H:{:.1}°F  L:{:.1}°F",
-                    w.city, w.current_f, w.current_c, w.high_f, w.low_f,
-                )
-                .into(),
+                city: w.city.as_str().into(),
+                current: format!("{:.1}°F ({:.1}°C)", w.current_f, w.current_c).into(),
+                range: format!("H:{:.1}°F  L:{:.1}°F", w.high_f, w.low_f).into(),
                 emoji: w.emoji.as_str().into(),
                 description: w.description.as_str().into(),
             })

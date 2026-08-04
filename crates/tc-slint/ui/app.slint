@@ -7,7 +7,9 @@ export struct UrlRow {
 }
 
 export struct WeatherRow {
-    summary: string,
+    city: string,
+    current: string,
+    range: string,
     emoji: string,
     description: string,
 }
@@ -186,10 +188,9 @@ export component AppWindow inherits Window {
 
                     GroupBox {
                         title: "Weather";
-                        // Keep Latin text on the default font; emoji goes in its own
-                        // Text with font-family "Noto Emoji" (registered from tc-core).
-                        // Mixing both in one Text blanked the line after the emoji
-                        // family was pointed at a Latin-less font.
+                        // Fixed-width columns so rows line up (more reliable than
+                        // monospace padding). Emoji stays on its own Text with
+                        // font-family "Noto Emoji" (registered from tc-core).
                         VerticalBox {
                             spacing: 2px;
                             padding: 0px;
@@ -200,21 +201,39 @@ export component AppWindow inherits Window {
                                 alignment: start;
                                 vertical-stretch: 0;
                                 Text {
-                                    text: row.summary;
+                                    text: row.city;
+                                    min-width: 110px;
+                                    max-width: 110px;
+                                    overflow: elide;
                                     vertical-stretch: 0;
                                     horizontal-stretch: 0;
                                 }
-                                if row.emoji != "" : Text {
+                                Text {
+                                    text: row.current;
+                                    min-width: 130px;
+                                    max-width: 130px;
+                                    vertical-stretch: 0;
+                                    horizontal-stretch: 0;
+                                }
+                                Text {
+                                    text: row.range;
+                                    min-width: 140px;
+                                    max-width: 140px;
+                                    vertical-stretch: 0;
+                                    horizontal-stretch: 0;
+                                }
+                                Text {
                                     text: row.emoji;
                                     font-family: "Noto Emoji";
-                                    // Cap emoji line-box so Noto metrics don't insert
-                                    // a blank-looking gap between weather rows.
+                                    min-width: 20px;
+                                    max-width: 20px;
                                     height: 16px;
                                     vertical-alignment: center;
+                                    horizontal-alignment: center;
                                     vertical-stretch: 0;
                                     horizontal-stretch: 0;
                                 }
-                                if row.description != "" : Text {
+                                Text {
                                     text: row.description;
                                     vertical-stretch: 0;
                                     horizontal-stretch: 0;
