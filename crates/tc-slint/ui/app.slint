@@ -14,8 +14,8 @@ export struct WeatherRow {
     description: string,
 }
 
-export struct Bar {
-    level: float,
+export struct GhDay {
+    emoji: string,
     color: color,
 }
 
@@ -40,8 +40,12 @@ export component AppWindow inherits Window {
     in property <string> cpu-load;
     in property <color> cpu-load-color;
 
-    // --- CPU history ---
-    in property <[Bar]> cpu-bars;
+    // --- CPU history wave (SVG path commands in a 100×48 viewbox) ---
+    in property <string> cpu-wave-fill;
+    in property <string> cpu-wave-line;
+    in property <color> cpu-wave-color;
+    in property <color> cpu-wave-fill-color;
+    in property <bool> cpu-wave-collecting;
 
     // --- Currency ---
     in property <string> currency-title;
@@ -53,7 +57,7 @@ export component AppWindow inherits Window {
     // --- Weather / GitHub ---
     in property <[WeatherRow]> weather-rows;
     in property <string> github-title;
-    in property <string> github-emojis;
+    in property <[GhDay]> github-days;
 
     // --- Footer ---
     in property <string> cfg-text;
@@ -142,19 +146,42 @@ export component AppWindow inherits Window {
                         title: "CPU History";
                         Rectangle {
                             height: 48px;
-                            HorizontalLayout {
-                                alignment: start;
-                                spacing: 1px;
-                                for bar in root.cpu-bars : Rectangle {
-                                    min-width: 6px;
-                                    max-width: 6px;
-                                    Rectangle {
-                                        width: parent.width;
-                                        height: parent.height * bar.level;
-                                        y: parent.height - self.height;
-                                        background: bar.color;
-                                    }
-                                }
+                            // Faint baseline
+                            Path {
+                                width: parent.width;
+                                height: parent.height;
+                                viewbox-width: 100;
+                                viewbox-height: 48;
+                                commands: "M 0 48 L 100 48";
+                                stroke: #464646;
+                                stroke-width: 1px;
+                            }
+                            // Filled area under the smoothed curve
+                            Path {
+                                width: parent.width;
+                                height: parent.height;
+                                viewbox-width: 100;
+                                viewbox-height: 48;
+                                commands: root.cpu-wave-fill;
+                                fill: root.cpu-wave-fill-color;
+                            }
+                            // Stroke along the curve
+                            Path {
+                                width: parent.width;
+                                height: parent.height;
+                                viewbox-width: 100;
+                                viewbox-height: 48;
+                                commands: root.cpu-wave-line;
+                                stroke: root.cpu-wave-color;
+                                stroke-width: 1.5px;
+                            }
+                            if root.cpu-wave-collecting : Text {
+                                width: parent.width;
+                                height: parent.height;
+                                text: "collecting…";
+                                color: #8c8c8c;
+                                horizontal-alignment: center;
+                                vertical-alignment: center;
                             }
                         }
                     }
@@ -244,10 +271,18 @@ export component AppWindow inherits Window {
 
                     GroupBox {
                         title: root.github-title;
-                        Text {
-                            text: root.github-emojis;
-                            font-family: "Noto Emoji";
-                            wrap: no-wrap;
+                        // Newest-first days; Rust trims oldest that don't fit.
+                        HorizontalBox {
+                            spacing: 4px;
+                            padding: 0px;
+                            alignment: start;
+                            for day in root.github-days : Text {
+                                text: day.emoji;
+                                color: day.color;
+                                font-family: "Noto Emoji";
+                                vertical-stretch: 0;
+                                horizontal-stretch: 0;
+                            }
                         }
                     }
 
