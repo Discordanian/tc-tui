@@ -1,4 +1,4 @@
-import { Button, LineEdit, ScrollView, GroupBox, VerticalBox, HorizontalBox } from "std-widgets.slint";
+import { Button, LineEdit, ScrollView, VerticalBox, HorizontalBox } from "std-widgets.slint";
 
 export struct UrlRow {
     code: string,
@@ -17,6 +17,31 @@ export struct WeatherRow {
 export struct GhDay {
     emoji: string,
     color: color,
+}
+
+/// Bordered section matching iced/egui panels (1px border, 4px radius, cyan title).
+component Panel inherits Rectangle {
+    in property <string> title;
+    border-width: 1px;
+    border-color: #4d4d59;
+    border-radius: 4px;
+    background: transparent;
+    vertical-stretch: 0;
+
+    VerticalLayout {
+        padding: 10px;
+        spacing: 6px;
+
+        Text {
+            text: root.title;
+            color: #4cccd9;
+            font-size: 16px;
+            font-weight: 700;
+            vertical-stretch: 0;
+        }
+
+        @children
+    }
 }
 
 export component AppWindow inherits Window {
@@ -89,7 +114,7 @@ export component AppWindow inherits Window {
                 VerticalBox {
                     horizontal-stretch: 1;
 
-                    GroupBox {
+                    Panel {
                         title: "URL Status";
                         VerticalBox {
                             spacing: 2px;
@@ -105,7 +130,7 @@ export component AppWindow inherits Window {
                         }
                     }
 
-                    GroupBox {
+                    Panel {
                         title: "System";
                         VerticalBox {
                             spacing: 2px;
@@ -142,7 +167,7 @@ export component AppWindow inherits Window {
                         }
                     }
 
-                    GroupBox {
+                    Panel {
                         title: "CPU History";
                         Rectangle {
                             height: 48px;
@@ -186,10 +211,14 @@ export component AppWindow inherits Window {
                         }
                     }
 
-                    GroupBox {
+                    Panel {
                         title: root.currency-title;
                         VerticalBox {
+                            padding: 0px;
+                            spacing: 6px;
                             HorizontalBox {
+                                padding: 0px;
+                                spacing: 8px;
                                 LineEdit {
                                     text <=> root.currency-input-0;
                                     edited => { root.currency-edited(); }
@@ -198,6 +227,8 @@ export component AppWindow inherits Window {
                                 Text { text: root.currency-result-0; vertical-alignment: center; }
                             }
                             HorizontalBox {
+                                padding: 0px;
+                                spacing: 8px;
                                 LineEdit {
                                     text <=> root.currency-input-1;
                                     edited => { root.currency-edited(); }
@@ -213,11 +244,10 @@ export component AppWindow inherits Window {
                 VerticalBox {
                     horizontal-stretch: 2;
 
-                    GroupBox {
+                    Panel {
                         title: "Weather";
-                        // Fixed-width columns so rows line up (more reliable than
-                        // monospace padding). Emoji stays on its own Text with
-                        // font-family "Noto Emoji" (registered from tc-core).
+                        // Fixed-width columns so rows line up. Emoji stays on its
+                        // own Text with font-family "Noto Emoji" (from tc-core).
                         VerticalBox {
                             spacing: 2px;
                             padding: 0px;
@@ -269,7 +299,7 @@ export component AppWindow inherits Window {
                         }
                     }
 
-                    GroupBox {
+                    Panel {
                         title: root.github-title;
                         // Newest-first days; Rust trims oldest that don't fit.
                         HorizontalBox {
@@ -286,13 +316,14 @@ export component AppWindow inherits Window {
                         }
                     }
 
-                    GroupBox {
+                    Panel {
                         title: "Tangential Cold";
                         Text {
                             text: "Tangential Cold";
                             color: #4cccd9;
                             horizontal-alignment: center;
                             font-size: 20px;
+                            width: 100%;
                         }
                     }
                 }
