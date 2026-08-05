@@ -27,6 +27,8 @@ component Panel inherits Rectangle {
     border-radius: 4px;
     background: transparent;
     vertical-stretch: 0;
+    horizontal-stretch: 1;
+    width: 100%;
 
     VerticalLayout {
         padding: 10px;
@@ -105,14 +107,17 @@ export component AppWindow inherits Window {
             Text { text: root.date-text; color: #4cccd9; vertical-alignment: center; }
         }
 
-        // Body
+        // Body — viewport matches the visible width so columns can stretch to
+        // fill the window (ScrollView otherwise sizes to content min-width).
         ScrollView {
+            viewport-width: self.visible-width;
             HorizontalBox {
-                alignment: start;
+                width: 100%;
 
                 // Left column
                 VerticalBox {
                     horizontal-stretch: 1;
+                    padding: 0px;
 
                     Panel {
                         title: "URL Status";
@@ -124,8 +129,19 @@ export component AppWindow inherits Window {
                                 spacing: 8px;
                                 padding: 0px;
                                 vertical-stretch: 0;
-                                Text { text: row.code; color: row.code-color; min-width: 52px; horizontal-stretch: 0; }
-                                Text { text: row.url; horizontal-stretch: 0; }
+                                Text {
+                                    text: row.code;
+                                    color: row.code-color;
+                                    min-width: 52px;
+                                    max-width: 52px;
+                                    horizontal-stretch: 0;
+                                    horizontal-alignment: left;
+                                }
+                                Text {
+                                    text: row.url;
+                                    horizontal-stretch: 1;
+                                    horizontal-alignment: left;
+                                }
                             }
                         }
                     }
@@ -140,29 +156,71 @@ export component AppWindow inherits Window {
                                 spacing: 8px;
                                 padding: 0px;
                                 vertical-stretch: 0;
-                                Text { text: "CPU Count"; min-width: 96px; horizontal-stretch: 0; }
-                                Text { text: root.cpu-count; horizontal-stretch: 0; }
+                                Text {
+                                    text: "CPU Count";
+                                    min-width: 96px;
+                                    max-width: 96px;
+                                    horizontal-stretch: 0;
+                                    horizontal-alignment: left;
+                                }
+                                Text {
+                                    text: root.cpu-count;
+                                    horizontal-stretch: 1;
+                                    horizontal-alignment: left;
+                                }
                             }
                             HorizontalBox {
                                 spacing: 8px;
                                 padding: 0px;
                                 vertical-stretch: 0;
-                                Text { text: "RAM Total"; min-width: 96px; horizontal-stretch: 0; }
-                                Text { text: root.ram-total; horizontal-stretch: 0; }
+                                Text {
+                                    text: "RAM Total";
+                                    min-width: 96px;
+                                    max-width: 96px;
+                                    horizontal-stretch: 0;
+                                    horizontal-alignment: left;
+                                }
+                                Text {
+                                    text: root.ram-total;
+                                    horizontal-stretch: 1;
+                                    horizontal-alignment: left;
+                                }
                             }
                             HorizontalBox {
                                 spacing: 8px;
                                 padding: 0px;
                                 vertical-stretch: 0;
-                                Text { text: "RAM Usage"; min-width: 96px; horizontal-stretch: 0; }
-                                Text { text: root.ram-used; color: root.ram-used-color; horizontal-stretch: 0; }
+                                Text {
+                                    text: "RAM Usage";
+                                    min-width: 96px;
+                                    max-width: 96px;
+                                    horizontal-stretch: 0;
+                                    horizontal-alignment: left;
+                                }
+                                Text {
+                                    text: root.ram-used;
+                                    color: root.ram-used-color;
+                                    horizontal-stretch: 1;
+                                    horizontal-alignment: left;
+                                }
                             }
                             HorizontalBox {
                                 spacing: 8px;
                                 padding: 0px;
                                 vertical-stretch: 0;
-                                Text { text: "CPU Load"; min-width: 96px; horizontal-stretch: 0; }
-                                Text { text: root.cpu-load; color: root.cpu-load-color; horizontal-stretch: 0; }
+                                Text {
+                                    text: "CPU Load";
+                                    min-width: 96px;
+                                    max-width: 96px;
+                                    horizontal-stretch: 0;
+                                    horizontal-alignment: left;
+                                }
+                                Text {
+                                    text: root.cpu-load;
+                                    color: root.cpu-load-color;
+                                    horizontal-stretch: 1;
+                                    horizontal-alignment: left;
+                                }
                             }
                         }
                     }
@@ -243,6 +301,7 @@ export component AppWindow inherits Window {
                 // Right column
                 VerticalBox {
                     horizontal-stretch: 2;
+                    padding: 0px;
 
                     Panel {
                         title: "Weather";
