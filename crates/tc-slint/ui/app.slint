@@ -228,39 +228,45 @@ export component AppWindow inherits Window {
                     Panel {
                         title: "CPU History";
                         Rectangle {
+                            width: 100%;
                             height: 48px;
                             // Faint baseline
                             Path {
-                                width: parent.width;
-                                height: parent.height;
+                                width: 100%;
+                                height: 100%;
                                 viewbox-width: 100;
                                 viewbox-height: 48;
+                                // Stretch into the panel; default `contain` keeps
+                                // the 100×48 aspect and only fills a fraction of the width.
+                                fit: fill;
                                 commands: "M 0 48 L 100 48";
                                 stroke: #464646;
                                 stroke-width: 1px;
                             }
                             // Filled area under the smoothed curve
                             Path {
-                                width: parent.width;
-                                height: parent.height;
+                                width: 100%;
+                                height: 100%;
                                 viewbox-width: 100;
                                 viewbox-height: 48;
+                                fit: fill;
                                 commands: root.cpu-wave-fill;
                                 fill: root.cpu-wave-fill-color;
                             }
                             // Stroke along the curve
                             Path {
-                                width: parent.width;
-                                height: parent.height;
+                                width: 100%;
+                                height: 100%;
                                 viewbox-width: 100;
                                 viewbox-height: 48;
+                                fit: fill;
                                 commands: root.cpu-wave-line;
                                 stroke: root.cpu-wave-color;
                                 stroke-width: 1.5px;
                             }
                             if root.cpu-wave-collecting : Text {
-                                width: parent.width;
-                                height: parent.height;
+                                width: 100%;
+                                height: 100%;
                                 text: "collecting…";
                                 color: #8c8c8c;
                                 horizontal-alignment: center;
