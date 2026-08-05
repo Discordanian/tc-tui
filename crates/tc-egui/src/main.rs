@@ -111,7 +111,7 @@ impl TcEgui {
 
         ui.add_space(4.0);
         ui.horizontal(|ui| {
-            ui.colored_label(CYAN, format!("🇪🇸 {}  │  🇺🇸 {}", spain, central));
+            ui.colored_label(CYAN, format!("🇪🇸 {}  |  🇺🇸 {}", spain, central));
             ui.separator();
             ui.colored_label(CYAN, format!("({}) {} {}", snap.ip_city, lock, hostname));
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
