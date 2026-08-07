@@ -93,7 +93,3 @@ If the file is missing or cannot be parsed, built-in defaults are used, and each
 | `Backspace` | Delete the last character of the active currency input |
 
 The GUI frontends expose a **Refresh** button instead of the `r` key, and their currency amount fields are directly editable.
-
-## Notes
-
-- The GUI frontends may render color emoji (flags, weather, GitHub icons) as fallback glyphs, since none of them bundle a color-emoji font. This is purely cosmetic and can be addressed later by loading an emoji font per toolkit.
