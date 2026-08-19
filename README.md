@@ -72,6 +72,14 @@ Run the whole suite (the meaningful tests live in `tc-core`):
 cargo test --workspace
 ```
 
+## Packaging
+
+Examing two packaging systems
+- cargo-bundle
+- cargo-packager
+
+
+
 ## Configuration
 
 All frontends read the same configuration file:
